@@ -7,30 +7,57 @@ enum FolderLayout {
     static let spacing: CGFloat = 6
     static let padding: CGFloat = 18
     static let headerHeight: CGFloat = 42
+    static let pageDotsHeight: CGFloat = 26
     static let cornerRadius: CGFloat = 30
-    static let maxVisibleRows = 4
 
-    /// iPhone-style 3 columns; 4 once a folder outgrows a 3×3 grid.
-    static func columns(for count: Int) -> Int {
-        count <= 9 ? 3 : 4
+    /// Pages hold 3 × 3 apps each, like a folder on iPhone.
+    static let appsPerPage = 9
+    static let maxPages = 3
+    /// The grid grows to 6 columns, then to 6 rows.
+    static let maxGridColumns = 6
+    static let maxGridRows = 6
+
+    static func columns(for count: Int, style: FolderStyle) -> Int {
+        switch style {
+        case .pages: return 3
+        case .grid: return min(maxGridColumns, max(3, count))
+        }
     }
 
-    static func rows(for count: Int) -> Int {
-        let perRow = columns(for: count)
+    static func rows(for count: Int, style: FolderStyle) -> Int {
+        let perRow = columns(for: count, style: style)
         return max(1, (count + perRow - 1) / perRow)
     }
 
-    static func gridSize(itemCount: Int) -> CGSize {
-        let cols = CGFloat(columns(for: itemCount))
-        let visibleRows = CGFloat(min(rows(for: itemCount), maxVisibleRows))
-        return CGSize(width: cols * cellSize.width + (cols - 1) * spacing,
-                      height: visibleRows * cellSize.height + (visibleRows - 1) * spacing)
+    static func pageCount(for count: Int) -> Int {
+        max(1, (count + appsPerPage - 1) / appsPerPage)
     }
 
-    static func panelSize(itemCount: Int) -> CGSize {
-        let grid = gridSize(itemCount: itemCount)
+    /// Rows on screen at once. A folder with more than one page always shows a full 3 × 3 page,
+    /// so it keeps its size as you turn the pages.
+    static func visibleRows(for count: Int, style: FolderStyle) -> Int {
+        switch style {
+        case .pages: return pageCount(for: count) > 1 ? 3 : rows(for: count, style: .pages)
+        case .grid: return min(rows(for: count, style: .grid), maxGridRows)
+        }
+    }
+
+    static func showsPageDots(for count: Int, style: FolderStyle) -> Bool {
+        style == .pages && pageCount(for: count) > 1
+    }
+
+    static func gridSize(itemCount: Int, style: FolderStyle) -> CGSize {
+        let cols = CGFloat(columns(for: itemCount, style: style))
+        let rows = CGFloat(visibleRows(for: itemCount, style: style))
+        return CGSize(width: cols * cellSize.width + (cols - 1) * spacing,
+                      height: rows * cellSize.height + (rows - 1) * spacing)
+    }
+
+    static func panelSize(itemCount: Int, style: FolderStyle) -> CGSize {
+        let grid = gridSize(itemCount: itemCount, style: style)
+        let dots = showsPageDots(for: itemCount, style: style) ? pageDotsHeight : 0
         return CGSize(width: grid.width + padding * 2,
-                      height: grid.height + headerHeight + padding * 2)
+                      height: grid.height + dots + headerHeight + padding * 2)
     }
 }
 
@@ -40,32 +67,26 @@ struct FolderView: View {
     @ObservedObject var store: FolderStore
     /// False when the window around the view provides the background (before macOS 26).
     var drawsGlass = true
+    /// The arrow keys turn the pages. Only for the panel above the Dock, which has no other use for them.
+    var arrowKeysTurnPages = false
     let onOpen: (FolderItem) -> Void
     let onAdd: () -> Void
     @State private var isDropTargeted = false
 
     var body: some View {
-        let count = store.items.count
-        let grid = FolderLayout.gridSize(itemCount: count)
-        let scrolls = FolderLayout.rows(for: count) > FolderLayout.maxVisibleRows
+        let grid = FolderLayout.gridSize(itemCount: store.items.count, style: store.style)
         let shape = RoundedRectangle(cornerRadius: FolderLayout.cornerRadius, style: .continuous)
 
         VStack(alignment: .leading, spacing: 0) {
             header
-            ScrollView {
-                if store.items.isEmpty {
-                    emptyState
-                } else {
-                    LazyVGrid(columns: gridColumns(for: count), spacing: FolderLayout.spacing) {
-                        ForEach(store.items) { item in
-                            FolderCell(item: item, store: store, onOpen: onOpen)
-                        }
-                    }
-                }
+            if store.items.isEmpty {
+                emptyState
+                    .frame(width: grid.width, height: grid.height)
+            } else if store.style == .pages {
+                FolderPages(store: store, arrowKeysTurnPages: arrowKeysTurnPages, onOpen: onOpen)
+            } else {
+                FolderGrid(store: store, onOpen: onOpen)
             }
-            .scrollIndicators(scrolls ? .automatic : .never)
-            .scrollDisabled(!scrolls)
-            .frame(width: grid.width, height: grid.height)
         }
         .padding(FolderLayout.padding)
         .modifier(FolderGlass(enabled: drawsGlass, shape: shape, tint: store.tint.glassColor))
@@ -76,7 +97,7 @@ struct FolderView: View {
         .dropDestination(for: URL.self) { urls, _ in
             let apps = urls.filter { $0.pathExtension == "app" }
             guard !apps.isEmpty else { return false }
-            store.add(apps)
+            if store.add(apps) > 0 { NSSound.beep() }   // the folder is full
             return true
         } isTargeted: { isDropTargeted = $0 }
         .animation(.easeOut(duration: 0.15), value: isDropTargeted)
@@ -93,7 +114,8 @@ struct FolderView: View {
                     .font(.system(size: 12, weight: .bold))
             }
             .buttonStyle(CircleIconButtonStyle())
-            .help("Add apps")
+            .disabled(store.isFull)
+            .help(store.isFull ? "This folder is full" : "Add apps")
         }
         .frame(height: FolderLayout.headerHeight, alignment: .top)
     }
@@ -109,10 +131,44 @@ struct FolderView: View {
         .foregroundStyle(.secondary)
         .frame(maxWidth: .infinity, minHeight: FolderLayout.cellSize.height)
     }
+}
 
-    private func gridColumns(for count: Int) -> [GridItem] {
-        Array(repeating: GridItem(.fixed(FolderLayout.cellSize.width), spacing: FolderLayout.spacing),
-              count: FolderLayout.columns(for: count))
+/// All the apps on one page, up to 6 × 6.
+private struct FolderGrid: View {
+    @ObservedObject var store: FolderStore
+    let onOpen: (FolderItem) -> Void
+
+    var body: some View {
+        let count = store.items.count
+        let grid = FolderLayout.gridSize(itemCount: count, style: .grid)
+        // Only a folder from before there were limits can outgrow 6 × 6; it scrolls.
+        let scrolls = FolderLayout.rows(for: count, style: .grid) > FolderLayout.maxGridRows
+
+        ScrollView {
+            AppGrid(items: store.items, columns: FolderLayout.columns(for: count, style: .grid),
+                    store: store, onOpen: onOpen)
+        }
+        .scrollIndicators(scrolls ? .automatic : .never)
+        .scrollDisabled(!scrolls)
+        .frame(width: grid.width, height: grid.height)
+    }
+}
+
+/// Apps in rows of `columns`, from the top left.
+struct AppGrid: View {
+    let items: [FolderItem]
+    let columns: Int
+    let store: FolderStore
+    let onOpen: (FolderItem) -> Void
+
+    var body: some View {
+        LazyVGrid(columns: Array(repeating: GridItem(.fixed(FolderLayout.cellSize.width), spacing: FolderLayout.spacing),
+                                 count: columns),
+                  alignment: .leading, spacing: FolderLayout.spacing) {
+            ForEach(items) { item in
+                FolderCell(item: item, store: store, onOpen: onOpen)
+            }
+        }
     }
 }
 

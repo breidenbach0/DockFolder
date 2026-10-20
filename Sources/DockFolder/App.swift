@@ -62,6 +62,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var cancellables = Set<AnyCancellable>()
     private var appearanceObservation: NSKeyValueObservation?
     private var lastPersistedIcon: PersistedIcon?
+    private var pendingBundleIcon: NSImage?
 
     /// What the icon written into the bundle shows, so it's only rewritten when that changes.
     private struct PersistedIcon: Equatable {
@@ -80,9 +81,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // Apps or colour changed here, or in the DockFolder window.
+        // Apps or colour changed here, or in the DockFolder window. @Published sends the new
+        // values just before the store has them, so the icon is drawn from the values sent.
         Publishers.CombineLatest(store.$items, store.$tint)
-            .sink { [weak self] _, _ in self?.refreshDockIcon() }
+            .sink { [weak self] items, tint in self?.refreshDockIcon(items: items, tint: tint) }
             .store(in: &cancellables)
         // Light or dark glass, to match the Dock.
         appearanceObservation = NSApp.observe(\.effectiveAppearance) { [weak self] _, _ in
@@ -103,7 +105,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// Apps dragged onto our Dock icon (Info.plist declares that we accept app bundles).
     func application(_ application: NSApplication, open urls: [URL]) {
-        store.add(urls)
+        if store.add(urls) > 0 { NSSound.beep() }   // the folder is full
         panel.show()
     }
 
@@ -133,24 +135,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.close(hideApp: false, animated: false)
         let urls = AppPicker.chooseApps(title: "Add to \(store.name)")
         guard !urls.isEmpty else { return }
-        store.add(urls)
+        if store.add(urls) > 0 { NSSound.beep() }   // the folder is full
         panel.show(near: anchor)
     }
 
     // MARK: - Dock icon
 
-    private func refreshDockIcon() {
+    private func refreshDockIcon(items: [FolderItem]? = nil, tint: FolderTint? = nil) {
+        let items = items ?? store.items
+        let tint = tint ?? store.tint
         let dark = NSApp.effectiveAppearance.isDark
-        let image = FolderIcon.make(from: store.previewIcons(), tint: store.tint, dark: dark)
+        let image = FolderIcon.make(from: items.prefix(9).map(store.icon(for:)), tint: tint, dark: dark)
         NSApp.applicationIconImage = image   // live icon while we're running
 
-        let shown = PersistedIcon(items: store.items.prefix(9).map(\.id), tint: store.tint, dark: dark)
+        let shown = PersistedIcon(items: items.prefix(9).map(\.id), tint: tint, dark: dark)
         guard Self.persistIconToBundle,
               shown != lastPersistedIcon,
               Bundle.main.bundleURL.pathExtension == "app" else { return }
         lastPersistedIcon = shown
-        // Custom Finder icon on our own bundle, so the Dock shows it while we're not running.
+        // Writing the icon into the bundle is slow, so wait until the changes stop
+        // (dragging through the colour wheel sends many).
+        pendingBundleIcon = image
+        NSObject.cancelPreviousPerformRequests(withTarget: self, selector: #selector(writeBundleIcon), object: nil)
+        perform(#selector(writeBundleIcon), with: nil, afterDelay: 0.5)
+    }
+
+    /// Custom Finder icon on our own bundle, so the Dock shows it while we're not running.
+    @objc private func writeBundleIcon() {
+        guard let image = pendingBundleIcon else { return }
+        pendingBundleIcon = nil
         _ = NSWorkspace.shared.setIcon(image, forFile: Bundle.main.bundlePath, options: [])
+        NSWorkspace.shared.noteFileSystemChanged(Bundle.main.bundlePath)
     }
 
     // MARK: - Menus

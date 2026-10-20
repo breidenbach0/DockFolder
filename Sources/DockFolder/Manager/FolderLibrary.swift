@@ -25,7 +25,7 @@ final class ManagedFolder: ObservableObject, Identifiable {
         store = FolderStore(name: name, bundleID: bundleID, directory: dataDirectory)
 
         // A running folder redraws its own Dock icon. One that isn't running can't,
-        // so draw it into its bundle for it.
+        // so draw it into its bundle for it. (By the end of the debounce the store has the values.)
         iconSubscription = Publishers.CombineLatest(store.$items, store.$tint)
             .dropFirst()
             .debounce(for: .milliseconds(300), scheduler: RunLoop.main)
@@ -40,10 +40,18 @@ final class ManagedFolder: ObservableObject, Identifiable {
         let image = FolderIcon.make(from: store.previewIcons(), tint: store.tint,
                                     dark: NSApp.effectiveAppearance.isDark)
         _ = NSWorkspace.shared.setIcon(image, forFile: url.path, options: [])
+        NSWorkspace.shared.noteFileSystemChanged(url.path)
     }
 
     fileprivate func checkRunning() -> Bool {
-        !NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).isEmpty
+        !runningCopies().isEmpty
+    }
+
+    /// This folder's running process, matched by path as well as bundle ID.
+    fileprivate func runningCopies() -> [NSRunningApplication] {
+        let path = url.standardizedFileURL.path
+        return NSRunningApplication.runningApplications(withBundleIdentifier: bundleID)
+            .filter { $0.bundleURL?.standardizedFileURL.path == path }
     }
 }
 
@@ -104,8 +112,9 @@ final class FolderLibrary: ObservableObject {
     /// Finds the folder apps in Dock Folders, keeping the ones already loaded.
     func reload() {
         let urls = (try? FileManager.default.contentsOfDirectory(
-            at: factory.foldersDirectory, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])) ?? []
-        var found: [ManagedFolder] = []
+            at: factory.foldersDirectory, includingPropertiesForKeys: [.contentModificationDateKey],
+            options: [.skipsHiddenFiles])) ?? []
+        var candidates: [(url: URL, name: String, bundleID: String)] = []
         for url in urls where url.pathExtension == "app" {
             guard let info = NSDictionary(contentsOf: url.appendingPathComponent("Contents/Info.plist")) as? [String: Any],
                   info["CFBundleExecutable"] as? String == "DockFolder",
@@ -114,6 +123,18 @@ final class FolderLibrary: ObservableObject {
             let name = info["CFBundleDisplayName"] as? String
                 ?? info["CFBundleName"] as? String
                 ?? url.deletingPathExtension().lastPathComponent
+            candidates.append((url, name, bundleID))
+        }
+
+        // Two folder apps should never share a bundle ID, and with it their saved apps. If a stray
+        // copy turns up anyway, show one: the copy kept in the Dock, otherwise the newest.
+        let dock = DockPreferences.appPaths()
+        let chosen = Dictionary(grouping: candidates, by: \.bundleID).values.compactMap { copies in
+            copies.max { Self.preference(of: $0.url, dock: dock) < Self.preference(of: $1.url, dock: dock) }
+        }
+
+        var found: [ManagedFolder] = []
+        for (url, name, bundleID) in chosen {
             let path = url.standardizedFileURL.path
             if let existing = folders.first(where: {
                 $0.bundleID == bundleID && $0.name == name && $0.url.standardizedFileURL.path == path
@@ -128,6 +149,11 @@ final class FolderLibrary: ObservableObject {
             folders = found
         }
         refreshStatus()
+    }
+
+    private static func preference(of url: URL, dock: Set<String>) -> (Int, Date) {
+        let modified = (try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+        return (dock.contains(url.standardizedFileURL.path) ? 1 : 0, modified)
     }
 
     /// Whether each folder is running, kept in the Dock, and made by this build.
@@ -147,13 +173,15 @@ final class FolderLibrary: ObservableObject {
 
     /// Makes a folder with these apps in it, optionally keeps it in the Dock, and starts it
     /// so its Dock icon shows the apps.
-    func createFolder(named name: String, tint: FolderTint, apps: [URL], keepInDock: Bool) async throws -> ManagedFolder {
+    func createFolder(named name: String, tint: FolderTint, style: FolderStyle = .pages, apps: [URL],
+                      keepInDock: Bool) async throws -> ManagedFolder {
         let plan = try factory.plan(name: name, existingBundleIDs: Set(folders.map(\.bundleID)))
         let factory = factory
         try await Task.detached(priority: .userInitiated) { try factory.build(plan) }.value
 
         // Save the apps before anything watches the folder, so its icon isn't drawn twice.
-        FolderStore(name: plan.name, bundleID: plan.bundleID, directory: dataDirectory).reset(apps: apps, tint: tint)
+        FolderStore(name: plan.name, bundleID: plan.bundleID, directory: dataDirectory)
+            .reset(apps: apps, tint: tint, style: style)
         let folder = ManagedFolder(url: plan.url, name: plan.name, bundleID: plan.bundleID, dataDirectory: dataDirectory)
         folder.writeIcon()   // so the Dock has the right icon before the folder first runs
         if keepInDock {
@@ -249,16 +277,29 @@ final class FolderLibrary: ObservableObject {
             DockPreferences.restartDock()
         }
         try FileManager.default.trashItem(at: folder.url, resultingItemURL: nil)
-        if FileManager.default.fileExists(atPath: folder.store.dataURL.path) {
+        // The saved apps belong to the bundle ID; another copy still using it keeps them.
+        if FileManager.default.fileExists(atPath: folder.store.dataURL.path),
+           Self.folderApps(withBundleID: folder.bundleID, in: factory.foldersDirectory).isEmpty {
             try? FileManager.default.trashItem(at: folder.store.dataURL, resultingItemURL: nil)
         }
         folders.removeAll { $0.id == folder.id }
+        reload()   // a copy that was hidden behind the deleted one shows up again
+    }
+
+    /// Folder apps on disk with this bundle ID.
+    static func folderApps(withBundleID bundleID: String, in directory: URL) -> [URL] {
+        let urls = (try? FileManager.default.contentsOfDirectory(
+            at: directory, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])) ?? []
+        return urls.filter { url in
+            url.pathExtension == "app"
+                && NSDictionary(contentsOf: url.appendingPathComponent("Contents/Info.plist"))?["CFBundleIdentifier"] as? String == bundleID
+        }
     }
 
     /// Asks the folder to quit and waits up to two seconds for it. Returns whether it was running.
     @discardableResult
     private func quit(_ folder: ManagedFolder) async -> Bool {
-        let running = NSRunningApplication.runningApplications(withBundleIdentifier: folder.bundleID)
+        let running = folder.runningCopies()
         guard !running.isEmpty else { return false }
         running.forEach { $0.terminate() }
         for _ in 0..<40 where running.contains(where: { !$0.isTerminated }) {

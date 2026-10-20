@@ -9,6 +9,7 @@ struct FolderDetailView: View {
     @State private var isConfirmingDelete = false
     @State private var isWorking = false
     @State private var errorMessage: String?
+    @State private var fullMessage: String?
 
     var body: some View {
         ScrollView {
@@ -20,6 +21,16 @@ struct FolderDetailView: View {
                 SettingsSection("Colour") {
                     SettingsRow("Glass tint", detail: "Tints the open folder and its Dock icon.") {
                         TintPicker(selection: Binding(get: { store.tint }, set: { store.setTint($0) }))
+                    }
+                }
+
+                SettingsSection("Layout") {
+                    SettingsRow("\(store.items.count) of \(store.capacity) apps",
+                                detail: store.style == .pages
+                                    ? "Swipe with two fingers, click the dots or use the arrow keys to turn the page."
+                                    : "Every app on one page.") {
+                        StylePicker(selection: Binding(get: { store.style }, set: { store.setStyle($0) }),
+                                    appCount: store.items.count)
                     }
                 }
 
@@ -80,6 +91,14 @@ struct FolderDetailView: View {
         } message: {
             Text("The folder leaves the Dock and goes to the Trash. The apps inside it aren’t affected.")
         }
+        .alert("This Folder Is Full", isPresented: Binding(
+            get: { fullMessage != nil },
+            set: { if !$0 { fullMessage = nil } }
+        )) {
+            Button("OK") {}
+        } message: {
+            Text(fullMessage ?? "")
+        }
         .alert("Something went wrong", isPresented: Binding(
             get: { errorMessage != nil },
             set: { if !$0 { errorMessage = nil } }
@@ -114,7 +133,12 @@ struct FolderDetailView: View {
     }
 
     private func addApps() {
-        store.add(AppPicker.chooseApps(title: "Add to \(folder.name)"))
+        let left = store.add(AppPicker.chooseApps(title: "Add to \(folder.name)"))
+        guard left > 0 else { return }
+        let apps = left == 1 ? "1 app wasn’t" : "\(left) apps weren’t"
+        fullMessage = store.style == .pages
+            ? "“\(folder.name)” holds up to \(FolderStyle.pages.capacity) apps on 3 pages, so \(apps) added. Switch its layout to the grid to fit up to \(FolderStyle.grid.capacity)."
+            : "“\(folder.name)” holds up to \(FolderStyle.grid.capacity) apps, so \(apps) added."
     }
 
     private func run(_ work: @escaping () async throws -> Void) {
@@ -138,7 +162,7 @@ struct FolderStage: View {
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
-        let panel = FolderLayout.panelSize(itemCount: store.items.count)
+        let panel = FolderLayout.panelSize(itemCount: store.items.count, style: store.style)
         let stage = RoundedRectangle(cornerRadius: 24, style: .continuous)
 
         VStack(spacing: 14) {
@@ -196,55 +220,6 @@ enum DesktopPicture {
         else { return nil }
         return NSImage(cgImage: image, size: .zero)
     }()
-}
-
-/// A row of colour swatches, like the accent colour picker in System Settings.
-struct TintPicker: View {
-    @Binding var selection: FolderTint
-
-    var body: some View {
-        HStack(spacing: 9) {
-            ForEach(FolderTint.allCases) { tint in
-                Button { selection = tint } label: {
-                    TintSwatch(tint: tint, isSelected: tint == selection)
-                }
-                .buttonStyle(PressableButtonStyle(pressedScale: 0.85))
-                .help(tint.title)
-                .accessibilityLabel(tint.title)
-                .accessibilityAddTraits(tint == selection ? .isSelected : [])
-            }
-        }
-        .animation(.spring(response: 0.25, dampingFraction: 0.7), value: selection)
-    }
-}
-
-private struct TintSwatch: View {
-    let tint: FolderTint
-    let isSelected: Bool
-
-    var body: some View {
-        ZStack {
-            if let color = tint.color {
-                Circle().fill(color.gradient)
-            } else {
-                // Clear glass.
-                Circle().fill(.ultraThinMaterial)
-                Circle().fill(LinearGradient(colors: [.white.opacity(0.7), .white.opacity(0.1)],
-                                             startPoint: .topLeading, endPoint: .bottomTrailing))
-            }
-            Circle().strokeBorder(Color.primary.opacity(0.18), lineWidth: 0.5)
-            if isSelected {
-                Circle()
-                    .fill(.white)
-                    .frame(width: 7, height: 7)
-                    .shadow(color: .black.opacity(0.25), radius: 1)
-            }
-        }
-        .frame(width: 22, height: 22)
-        .padding(3)
-        .overlay(Circle().strokeBorder(Color.primary.opacity(isSelected ? 0.55 : 0), lineWidth: 1.5))
-        .contentShape(Circle())
-    }
 }
 
 /// A titled group of rows on a rounded card, in the style of System Settings.

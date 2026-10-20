@@ -163,10 +163,11 @@ enum FolderIcon {
         guard let tint = tint?.usingColorSpace(.sRGB) else {
             return dark ? (.white(0.3), .white(0.1)) : (.white(0.72), .white(0.36))
         }
-        let light = tint.blended(withFraction: dark ? 0.15 : 0.3, of: .white) ?? tint
+        // Mostly opaque, so a colour reads as itself over a dark Dock rather than a muddy shade of it.
+        let light = tint.blended(withFraction: dark ? 0.12 : 0.3, of: .white) ?? tint
         return dark
-            ? (light.withAlphaComponent(0.62), tint.withAlphaComponent(0.42))
-            : (light.withAlphaComponent(0.78), tint.withAlphaComponent(0.6))
+            ? (light.withAlphaComponent(0.88), tint.withAlphaComponent(0.76))
+            : (light.withAlphaComponent(0.86), tint.withAlphaComponent(0.72))
     }
 
     private static func drawEmptySlots(in tile: CGRect, dark: Bool, context cg: CGContext) {
