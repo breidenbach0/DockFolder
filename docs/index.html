@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DockFolder — Folders for your Mac's Dock</title>
+  <meta name="description" content="DockFolder turns a group of apps into a single Dock icon. Click it and the apps open in a Liquid Glass grid, like a folder on iPhone. Free and open source for macOS.">
+  <meta name="theme-color" content="#f5f5f7" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#07070b" media="(prefers-color-scheme: dark)">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="DockFolder — Folders for your Mac's Dock">
+  <meta property="og:description" content="iPhone-style app folders that live in the macOS Dock, drawn in Liquid Glass. Free and open source.">
+  <meta property="og:url" content="https://breidenbach0.github.io/DockFolder/">
+  <meta property="og:image" content="https://breidenbach0.github.io/DockFolder/images/og.jpg">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="icon" type="image/png" href="images/favicon.png">
+  <link rel="apple-touch-icon" href="images/app-icon.png">
+  <link rel="stylesheet" href="styles.css">
+  <script src="site.js" defer></script>
+</head>
+<body>
+  <div class="aurora" aria-hidden="true"><span></span><span></span><span></span><span></span></div>
+
+  <header class="nav-wrap">
+    <nav class="nav glass" aria-label="Main">
+      <a class="brand" href="#top">
+        <img src="images/app-icon.png" alt="" width="28" height="28">
+        <span>DockFolder</span>
+      </a>
+      <div class="nav-links">
+        <a href="#features">Features</a>
+        <a href="#install">Install</a>
+        <a href="#faq">FAQ</a>
+        <a href="https://github.com/breidenbach0/DockFolder">GitHub</a>
+      </div>
+      <a class="button button-primary button-small" href="https://github.com/breidenbach0/DockFolder/releases/latest/download/DockFolder.dmg">Download</a>
+    </nav>
+  </header>
+
+  <main id="top">
+    <section class="hero">
+      <img class="hero-icon" src="images/app-icon.png" alt="" width="144" height="144">
+      <h1>Folders, right in<br><span class="gradient-text">your Dock.</span></h1>
+      <p class="lead">DockFolder turns a group of apps into a single Dock icon. Click it and the apps open in a Liquid Glass grid, just like a folder on iPhone.</p>
+      <div class="cta">
+        <a class="button button-primary" href="https://github.com/breidenbach0/DockFolder/releases/latest/download/DockFolder.dmg">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0-5-5m5 5 5-5M5 20h14" /></svg>
+          Download for Mac
+        </a>
+        <a class="button button-glass" href="https://github.com/breidenbach0/DockFolder">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18-6-6 6-6m6 0 6 6-6 6" /></svg>
+          View on GitHub
+        </a>
+      </div>
+      <p class="fineprint">Free and open source · <span data-version>Version 0.2.0</span> · macOS 13 or later · Apple silicon and Intel</p>
+
+      <figure class="hero-shot glass">
+        <picture>
+          <source srcset="images/hero-light.jpg" media="(prefers-color-scheme: light)">
+          <img src="images/hero-dark.jpg" width="2000" height="1266" alt="A folder called Creative open above its Dock icon, showing six apps on a pane of Liquid Glass.">
+        </picture>
+      </figure>
+    </section>
+
+    <section id="features" class="section">
+      <p class="eyebrow">Features</p>
+      <h2>Everything a folder should be.</h2>
+      <div class="features">
+        <article class="feature glass reveal">
+          <div class="feature-icon tile-blue"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="3.5" width="17" height="17" rx="5" /><path d="M7.5 9c.6-1.8 2-3 3.8-3.4" /></svg></div>
+          <h3>Liquid Glass, for real</h3>
+          <p>Folders open on the same glass macOS uses, grow out of their Dock icon, and look right in light and dark mode.</p>
+        </article>
+        <article class="feature glass reveal">
+          <div class="feature-icon tile-purple"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2.5" y="13" width="19" height="7.5" rx="3" /><rect x="5.5" y="15.2" width="3" height="3" rx="1" /><rect x="10.5" y="15.2" width="3" height="3" rx="1" /><rect x="15.5" y="15.2" width="3" height="3" rx="1" /><path d="M12 3.5v6m0 0-2.5-2.5M12 9.5l2.5-2.5" /></svg></div>
+          <h3>A live Dock icon</h3>
+          <p>Each folder's icon is a little glass tile showing the apps inside. Drop an app on it to add it.</p>
+        </article>
+        <article class="feature glass reveal">
+          <div class="feature-icon tile-pink"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="8" cy="8.5" r="3.5" /><circle cx="16" cy="8.5" r="3.5" /><circle cx="12" cy="15.5" r="3.5" /></svg></div>
+          <h3>Ten colours</h3>
+          <p>Tint a folder's glass blue, purple, pink, green and more. Its Dock icon changes to match.</p>
+        </article>
+        <article class="feature glass reveal">
+          <div class="feature-icon tile-orange"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2.5" y="4" width="19" height="16" rx="3.5" /><path d="M9 4v16M5 7.5h1.5" /></svg></div>
+          <h3>One window for everything</h3>
+          <p>Make folders, preview them over your desktop picture, and rename, recolour, update or delete them.</p>
+        </article>
+        <article class="feature glass reveal">
+          <div class="feature-icon tile-green"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 5 6v5.5c0 4.2 2.9 7.8 7 9 4.1-1.2 7-4.8 7-9V6l-7-3Z" /><path d="m9 12 2 2 4-4.5" /></svg></div>
+          <h3>Stays out of the way</h3>
+          <p>No private APIs, no Accessibility access, no background helpers. Your Dock stays exactly as it is.</p>
+        </article>
+        <article class="feature glass reveal">
+          <div class="feature-icon tile-graphite"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8.5 7-5 5 5 5m7-10 5 5-5 5M13.5 5l-3 14" /></svg></div>
+          <h3>Open source</h3>
+          <p>MIT-licensed Swift, built with AppKit and SwiftUI. Read it, build it, make it yours.</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="section showcase">
+      <div class="showcase-row reveal">
+        <div class="showcase-text">
+          <p class="eyebrow">Make</p>
+          <h2>A new folder in seconds.</h2>
+          <p>Click <b>+</b>, give it a name and a colour, and drop in some apps. DockFolder adds it to your Dock and draws its icon while you choose.</p>
+        </div>
+        <picture class="showcase-shot">
+          <source srcset="images/new-folder-light.png" media="(prefers-color-scheme: light)">
+          <img src="images/new-folder-dark.png" width="1400" height="1008" loading="lazy" alt="The New Folder sheet: a live preview of the folder's icon, a name field, colour swatches, a Keep in Dock switch and the chosen apps.">
+        </picture>
+      </div>
+      <div class="showcase-row showcase-row-flip reveal">
+        <div class="showcase-text">
+          <p class="eyebrow">Manage</p>
+          <h2>See it before your Dock does.</h2>
+          <p>Every folder gets a live preview on glass over your desktop picture. Open apps from it, drag more in, rearrange them, or change its colour and name.</p>
+        </div>
+        <picture class="showcase-shot">
+          <source srcset="images/window-light.png" media="(prefers-color-scheme: light)">
+          <img src="images/window-dark.png" width="1400" height="1008" loading="lazy" alt="The DockFolder window: folders listed in the sidebar, and the selected folder previewed as a purple glass panel over a desktop picture, with colour and Dock settings below.">
+        </picture>
+      </div>
+    </section>
+
+    <section class="section colours reveal">
+      <p class="eyebrow">Colours</p>
+      <h2>Pick a colour. Or none.</h2>
+      <p class="section-lead">Clear glass, or a tint that runs from the open folder to its Dock icon.</p>
+      <div class="colours-card glass">
+        <picture>
+          <source srcset="images/colors-light.png" media="(prefers-color-scheme: light)">
+          <img src="images/colors-dark.png" width="1400" height="227" loading="lazy" alt="Six folder icons with apps inside, in clear, blue, purple, green, orange and graphite glass.">
+        </picture>
+      </div>
+    </section>
+
+    <section class="section">
+      <p class="eyebrow">How it works</p>
+      <h2>Three steps. That's it.</h2>
+      <ol class="steps">
+        <li class="step glass reveal">
+          <span class="step-number">1</span>
+          <h3>Make a folder</h3>
+          <p>Open DockFolder, click <b>+</b>, and pick a name, a colour and some apps.</p>
+        </li>
+        <li class="step glass reveal">
+          <span class="step-number">2</span>
+          <h3>Find it in the Dock</h3>
+          <p>The folder appears in your Dock with a live preview of what's inside.</p>
+        </li>
+        <li class="step glass reveal">
+          <span class="step-number">3</span>
+          <h3>Click to open</h3>
+          <p>The folder opens above its icon. Click an app to launch it; press Esc or click elsewhere to close.</p>
+        </li>
+      </ol>
+    </section>
+
+    <section id="install" class="section">
+      <p class="eyebrow">Install</p>
+      <h2>Up and running in a minute.</h2>
+      <div class="install glass reveal">
+        <ol class="install-steps">
+          <li>
+            <h3>Download DockFolder</h3>
+            <p><a class="button button-primary button-small" href="https://github.com/breidenbach0/DockFolder/releases/latest/download/DockFolder.dmg">Download DockFolder.dmg</a> <span class="muted" data-size></span></p>
+          </li>
+          <li>
+            <h3>Drag it to Applications</h3>
+            <p>Open the disk image and drag <b>DockFolder</b> onto the <b>Applications</b> folder next to it.</p>
+          </li>
+          <li>
+            <h3>Open it the first time</h3>
+            <p>DockFolder isn't notarized by Apple, so macOS asks before it opens it. If you see a message that macOS couldn't verify DockFolder, click <b>Done</b>, open <b>System Settings › Privacy &amp; Security</b>, scroll down and click <b>Open Anyway</b>. You only do this once.</p>
+            <p class="muted">Prefer Terminal? This does the same:</p>
+            <div class="code">
+              <code id="unquarantine">xattr -dr com.apple.quarantine /Applications/DockFolder.app</code>
+              <button class="copy" type="button" data-copy="unquarantine">Copy</button>
+            </div>
+          </li>
+          <li>
+            <h3>Make your first folder</h3>
+            <p>Click <b>+</b> in the DockFolder window. Your folders are kept in <code>~/Applications/Dock Folders</code>.</p>
+          </li>
+        </ol>
+      </div>
+      <p class="note">Needs macOS 13 Ventura or later, on Apple silicon or Intel. Liquid Glass needs macOS 26 or later; earlier versions get a frosted blur instead.</p>
+    </section>
+
+    <section id="faq" class="section">
+      <p class="eyebrow">FAQ</p>
+      <h2>Questions, answered.</h2>
+      <div class="faq">
+        <details class="glass">
+          <summary>Does DockFolder replace the Dock?</summary>
+          <p>No. Each folder is a regular Dock icon, so your Dock keeps working exactly as before. Move folders around, or take them out, like any other app.</p>
+        </details>
+        <details class="glass">
+          <summary>Why is each folder its own app?</summary>
+          <p>That's how a folder gets its own icon and its own place in the Dock without changing the Dock itself. Folders are tiny copies of DockFolder, and each one keeps its own list of apps.</p>
+        </details>
+        <details class="glass">
+          <summary>Why does the Dock restart sometimes?</summary>
+          <p>The Dock only reads its list of apps when it starts. Adding a folder to the Dock, renaming one that's in it, or removing one restarts the Dock for a moment.</p>
+        </details>
+        <details class="glass">
+          <summary>Why do folders show up in ⌘-Tab?</summary>
+          <p>A running folder is an app like any other, so it appears in the app switcher. Hiding folders from ⌘-Tab is the next big step on the roadmap.</p>
+        </details>
+        <details class="glass">
+          <summary>A new folder took a while to open. Why?</summary>
+          <p>The first time a new or updated folder opens, macOS checks it, and that can include an online lookup. On a slow network the first launch can take up to a minute or so. After that, folders open instantly.</p>
+        </details>
+        <details class="glass">
+          <summary>How do I remove DockFolder?</summary>
+          <p>Delete your folders in the DockFolder window (they go to the Trash), then drag DockFolder from Applications to the Trash. Folder settings live in <code>~/Library/Application Support/DockFolder</code>.</p>
+        </details>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <img src="images/app-icon.png" alt="" width="40" height="40">
+    <p>DockFolder is free and open source under the <a href="https://github.com/breidenbach0/DockFolder/blob/main/LICENSE">MIT License</a>. Made by Simon Breidenbach.</p>
+    <p class="muted">Not affiliated with Apple. Apple, Mac and macOS are trademarks of Apple Inc.</p>
+  </footer>
+</body>
+</html>
