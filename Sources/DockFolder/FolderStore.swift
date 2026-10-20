@@ -23,6 +23,7 @@ final class FolderStore: ObservableObject {
 
     @Published private(set) var items: [FolderItem] = []
     @Published private(set) var tint: FolderTint = .clear
+    @Published private(set) var style: FolderStyle = .pages
     let name: String
     let bundleID: String
     let dataURL: URL
@@ -61,14 +62,25 @@ final class FolderStore: ObservableObject {
             .appendingPathComponent("DockFolder", isDirectory: true)
     }
 
+    /// The most apps this folder holds, for its layout.
+    var capacity: Int { style.capacity }
+
+    var isFull: Bool { items.count >= capacity }
+
     // MARK: - Editing
 
-    func add(_ urls: [URL]) {
+    /// Adds as many of the apps as the folder has room for. Returns how many didn't fit.
+    @discardableResult
+    func add(_ urls: [URL]) -> Int {
         reloadIfChangedOnDisk()
-        let updated = Self.appending(urls, to: items)
-        guard updated != items else { return }
-        items = updated
-        save()
+        let all = Self.appending(urls, to: items)
+        // A folder from before there were limits may already hold more; it keeps them.
+        let updated = Array(all.prefix(max(capacity, items.count)))
+        if updated != items {
+            items = updated
+            save()
+        }
+        return all.count - updated.count
     }
 
     func remove(_ item: FolderItem) {
@@ -93,10 +105,22 @@ final class FolderStore: ObservableObject {
         save()
     }
 
+    /// Switches between pages and the grid. Refused if the folder holds more apps than fit.
+    @discardableResult
+    func setStyle(_ newStyle: FolderStyle) -> Bool {
+        reloadIfChangedOnDisk()
+        guard items.count <= newStyle.capacity else { return false }
+        guard newStyle != style else { return true }
+        style = newStyle
+        save()
+        return true
+    }
+
     /// Starts the folder over with these apps. For a folder that's just been made.
-    func reset(apps: [URL], tint newTint: FolderTint) {
-        items = Self.appending(apps, to: [])
+    func reset(apps: [URL], tint newTint: FolderTint, style newStyle: FolderStyle = .pages) {
+        items = Array(Self.appending(apps, to: []).prefix(newStyle.capacity))
         tint = newTint
+        style = newStyle
         save()
     }
 
@@ -185,11 +209,13 @@ final class FolderStore: ObservableObject {
         var items: [FolderItem]
         /// Missing in files saved before folders had a colour.
         var tint: String?
+        /// Missing in files saved before folders had a choice of layout.
+        var style: String?
     }
 
     private func load() {
         guard FileManager.default.fileExists(atPath: dataURL.path) else {
-            apply(items: [], tint: .clear)
+            apply(items: [], tint: .clear, style: .pages)
             knownFileDate = nil
             return
         }
@@ -198,7 +224,8 @@ final class FolderStore: ObservableObject {
         do {
             let data = try Data(contentsOf: dataURL)
             let file = try JSONDecoder().decode(FolderFile.self, from: data)
-            apply(items: file.items, tint: FolderTint(savedName: file.tint))
+            apply(items: file.items, tint: FolderTint(savedName: file.tint),
+                  style: FolderStyle(savedName: file.style, itemCount: file.items.count))
             knownFileDate = date
         } catch {
             // Keep the unreadable file for inspection instead of overwriting it on the next save.
@@ -212,16 +239,18 @@ final class FolderStore: ObservableObject {
     }
 
     /// Only publishes what actually changed, so a reload doesn't redraw the Dock icon for nothing.
-    private func apply(items newItems: [FolderItem], tint newTint: FolderTint) {
+    private func apply(items newItems: [FolderItem], tint newTint: FolderTint, style newStyle: FolderStyle) {
         if items != newItems { items = newItems }
         if tint != newTint { tint = newTint }
+        if style != newStyle { style = newStyle }
     }
 
     private func save() {
         do {
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-            let file = FolderFile(version: 1, items: items, tint: tint == .clear ? nil : tint.rawValue)
+            let file = FolderFile(version: 1, items: items, tint: tint == .clear ? nil : tint.savedName,
+                                  style: style.rawValue)
             try encoder.encode(file).write(to: dataURL, options: .atomic)
             knownFileDate = fileDate()
         } catch {

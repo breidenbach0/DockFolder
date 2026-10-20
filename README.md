@@ -34,7 +34,14 @@ Needs macOS 13 Ventura or later, on Apple silicon or Intel. Liquid Glass needs m
 
 ## Use it
 
-**Make a folder.** In the DockFolder window, click **+** (or press ⌘N), name the folder, pick a colour and some apps (choose them, or drop them in), and click **Create Folder**. It's saved to `~/Applications/Dock Folders`, kept in the Dock and started. You can also drop apps onto DockFolder's own Dock icon to start a folder with them.
+**Make a folder.** In the DockFolder window, click **+** (or press ⌘N), name the folder, pick a colour, a layout and some apps (choose them, or drop them in), and click **Create Folder**. It's saved to `~/Applications/Dock Folders`, kept in the Dock and started. You can also drop apps onto DockFolder's own Dock icon to start a folder with them.
+
+**Pages or a grid.** Each folder lays out its apps one of two ways:
+
+- **Pages:** 9 apps a page (3 × 3), like a folder on iPhone. A new page starts after every 9 apps, up to 3 pages (27 apps). Turn the page by swiping with two fingers, clicking the dots, or pressing ← and →.
+- **Grid:** every app on one page, up to 6 × 6 (36 apps).
+
+A full folder turns away more apps. You can only switch to a layout that has room for the folder's apps.
 
 **Use it in the Dock.**
 
@@ -44,7 +51,7 @@ Needs macOS 13 Ventura or later, on Apple silicon or Intel. Liquid Glass needs m
 - Right-click an app in the folder to move it left or right, or remove it.
 - To have folders ready after a restart: right-click the folder's Dock icon › **Options › Open at Login**.
 
-**Change a folder.** Select it in the DockFolder window. You get a live preview of it on glass over your desktop picture, where you can open, add, rearrange and remove apps. Below the preview you can change its glass tint, rename it, keep it in the Dock or take it out, start it, show it in Finder, or move it to the Trash. Folders made by an older version get an **Update** button that rebuilds them and keeps their apps, colour and place in the Dock.
+**Change a folder.** Select it in the DockFolder window. You get a live preview of it on glass over your desktop picture, where you can open, add, rearrange and remove apps. Below the preview you can change its glass tint (clear, nine ready-made colours, or any colour from the rainbow well, which opens the colour panel) and its layout, rename it, keep it in the Dock or take it out, start it, show it in Finder, or move it to the Trash. Folders made by an older version get an **Update** button that rebuilds them and keeps their apps, colour and place in the Dock.
 
 <picture>
   <source media="(prefers-color-scheme: light)" srcset="docs/images/window-light.png">
@@ -66,7 +73,7 @@ open build/DockFolder.app     # the DockFolder window
 
 - `scripts/make-dmg.sh` builds `build/DockFolder.dmg`, the download.
 - `scripts/make-folder.sh "Design" --pin` makes a folder without the window.
-- `swift test` runs the tests: grid placement, layout sizes, saving, colours, edits from two processes, bundle IDs and names, building, rebuilding and renaming signed folders, Dock tiles and the app icon.
+- `swift test` runs the tests: grid placement, layout sizes and limits, page swipes, saving, colours, edits from two processes, bundle IDs and names, building, rebuilding and renaming signed folders, Dock tiles and the app icon.
 - `open Package.swift` edits it in Xcode. Running from Xcode starts a bare binary that runs as a folder; pass `-DockFolderRole manager` to get the DockFolder window (making folders needs the app bundle). To test real Dock behaviour, build the app and make a folder.
 
 Folders are copied from the DockFolder app you run, so after rebuilding, click **Update** on each folder.
@@ -85,15 +92,19 @@ Folders are copied from the DockFolder app you run, so after rebuilding, click *
 | `FolderStore.swift` | The folder's apps and colour, saved as JSON; finds moved apps by bundle ID; picks up edits from the other process |
 | `PanelController.swift` | The floating glass grid window: open and close animations, position, Esc |
 | `DockGeometry.swift` | Which edge the Dock is on and where the grid goes |
-| `FolderView.swift` | The SwiftUI grid on glass, and fixed layout sizes |
+| `FolderView.swift` | The open folder on glass, the 6 × 6 grid, and fixed layout sizes |
+| `FolderPages.swift` | Pages of 9 apps: swipes, page dots and arrow keys |
+| `FolderStyle.swift` | The two layouts, pages and grid, and how many apps each holds |
 | `FolderIcon.swift` | Draws the glass folder icon from the first nine app icons, and DockFolder's own icon |
-| `FolderTint.swift` | The colours a folder's glass can be tinted |
+| `FolderTint.swift` | The colours a folder's glass can be tinted, ready-made or any colour (saved as #RRGGBB) |
 | `Glass.swift` | Liquid Glass helpers, with blur fallbacks for macOS 13–15 |
 | `Manager/ManagerApp.swift` | The DockFolder window app |
 | `Manager/ManagerView.swift` | Sidebar of folders and the welcome screen |
 | `Manager/FolderDetailView.swift` | A folder's live glass preview over the desktop picture, and its settings |
 | `Manager/NewFolderSheet.swift` | Name, colour and apps for a new folder |
 | `Manager/RenameFolderSheet.swift` | A new name for a folder |
+| `Manager/StylePicker.swift` | The choice between pages and the grid |
+| `Manager/TintPicker.swift` | Colour swatches, and the well that opens the colour panel |
 | `Manager/FolderLibrary.swift` | Finds the folders; makes, renames, updates and deletes them; Dock and running status |
 | `Manager/FolderFactory.swift` | Builds folder apps from `DockFolder.app`, the same steps as `make-folder.sh` |
 | `Manager/DockPreferences.swift` | Reads and writes the apps kept in the Dock |
@@ -115,7 +126,7 @@ The website lives in `docs/` and is served by GitHub Pages.
 1. **Hide folders from ⌘-Tab.** Split the app into one background agent (`LSUIElement`) that owns all folders and their grids, plus tiny per-folder stub apps that only tell the agent "open folder X" and then quit. Test early whether writing icons into the stub apps triggers macOS's App Management prompt.
 2. **Drag to reorder** inside the grid, and drag an app out to remove it.
 3. **Keyboard:** arrow keys plus Return, and type to filter.
-4. **Appearance:** number of columns and icon size.
+4. **Appearance:** icon size, and more layouts.
 5. **Shipping:** Developer ID signing, notarization and Sparkle updates.
 
 ## License

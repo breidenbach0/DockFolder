@@ -10,6 +10,7 @@ struct NewFolderSheet: View {
     @FocusState private var isNameFocused: Bool
     @State private var name = ""
     @State private var tint = FolderTint.clear
+    @State private var style = FolderStyle.pages
     @State private var apps: [URL]
     @State private var keepInDock = true
     @State private var isCreating = false
@@ -24,6 +25,11 @@ struct NewFolderSheet: View {
 
     var body: some View {
         let nameProblem = name.trimmingCharacters(in: .whitespaces).isEmpty ? nil : library.problem(withName: name)
+        let tooMany = apps.count > style.capacity
+            ? (style == .pages && apps.count <= FolderStyle.grid.capacity
+                ? "Pages hold up to \(style.capacity) apps. Remove some, or choose the grid."
+                : "A folder holds up to \(style.capacity) apps. Remove \(apps.count - style.capacity).")
+            : nil
 
         VStack(spacing: 18) {
             Image(nsImage: FolderIcon.make(from: apps.prefix(9).map { NSWorkspace.shared.icon(forFile: $0.path) },
@@ -52,6 +58,11 @@ struct NewFolderSheet: View {
                     TintPicker(selection: $tint)
                 }
                 Divider()
+                SettingsRow("Layout") {
+                    StylePicker(selection: $style, appCount: apps.count)
+                }
+                .padding(.vertical, 2)
+                Divider()
                 SettingsRow("Keep in Dock", detail: "The Dock restarts briefly to add it.") {
                     Toggle("Keep in Dock", isOn: $keepInDock)
                         .labelsHidden()
@@ -61,7 +72,7 @@ struct NewFolderSheet: View {
 
             appsCard
 
-            if let message = errorMessage ?? nameProblem {
+            if let message = errorMessage ?? nameProblem ?? tooMany {
                 Label(message, systemImage: "exclamationmark.triangle.fill")
                     .font(.callout)
                     .foregroundStyle(.red)
@@ -80,7 +91,8 @@ struct NewFolderSheet: View {
                     .keyboardShortcut(.cancelAction)
                 Button("Create Folder", action: create)
                     .keyboardShortcut(.defaultAction)
-                    .disabled(isCreating || nameProblem != nil || name.trimmingCharacters(in: .whitespaces).isEmpty)
+                    .disabled(isCreating || nameProblem != nil || tooMany != nil
+                              || name.trimmingCharacters(in: .whitespaces).isEmpty)
             }
         }
         .padding(24)
@@ -153,12 +165,13 @@ struct NewFolderSheet: View {
     }
 
     private func create() {
-        guard !isCreating, library.problem(withName: name) == nil else { return }
+        guard !isCreating, library.problem(withName: name) == nil, apps.count <= style.capacity else { return }
         isCreating = true
         errorMessage = nil
         Task {
             do {
-                let folder = try await library.createFolder(named: name, tint: tint, apps: apps, keepInDock: keepInDock)
+                let folder = try await library.createFolder(named: name, tint: tint, style: style, apps: apps,
+                                                            keepInDock: keepInDock)
                 onCreated(folder)
                 dismiss()
             } catch {

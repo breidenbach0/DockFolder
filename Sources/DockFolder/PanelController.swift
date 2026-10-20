@@ -41,7 +41,7 @@ struct FolderPanelView: View {
     let onAdd: () -> Void
 
     var body: some View {
-        FolderView(store: store, drawsGlass: drawsGlass, onOpen: onOpen, onAdd: onAdd)
+        FolderView(store: store, drawsGlass: drawsGlass, arrowKeysTurnPages: true, onOpen: onOpen, onAdd: onAdd)
             .scaleEffect(presentation.isShown ? 1 : 0.86, anchor: presentation.anchor)
             .padding(margin)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -100,10 +100,11 @@ final class PanelController: NSObject, NSWindowDelegate {
         panel.contentView = Self.usesLiquidGlass ? hosting : Self.makeBackground(containing: hosting)
         panel.delegate = self
 
-        // Grow or shrink the open panel as apps are added or removed.
-        itemsSubscription = store.$items.dropFirst().sink { [weak self] items in
+        // Grow or shrink the open panel as apps are added or removed, or the layout changes.
+        // (@Published sends new values before the store has them, so use the values sent.)
+        itemsSubscription = Publishers.CombineLatest(store.$items, store.$style).dropFirst().sink { [weak self] items, style in
             guard let self, self.isOpen else { return }
-            self.applyFrame(itemCount: items.count)
+            self.applyFrame(itemCount: items.count, style: style)
         }
     }
 
@@ -119,7 +120,7 @@ final class PanelController: NSObject, NSWindowDelegate {
 
     func show(near point: NSPoint? = nil) {
         anchor = point ?? NSEvent.mouseLocation
-        applyFrame(itemCount: store.items.count)
+        applyFrame(itemCount: store.items.count, style: store.style)
         guard !isOpen else { return }
 
         isOpen = true
@@ -182,11 +183,11 @@ final class PanelController: NSObject, NSWindowDelegate {
         close(hideApp: false)
     }
 
-    private func applyFrame(itemCount: Int) {
+    private func applyFrame(itemCount: Int, style: FolderStyle) {
         guard let screen = DockGeometry.screen(containing: anchor) else { return }
         let dock = DockGeometry.current()
         let glass = dock.panelFrame(
-            size: FolderLayout.panelSize(itemCount: itemCount),
+            size: FolderLayout.panelSize(itemCount: itemCount, style: style),
             anchor: anchor,
             screenFrame: screen.frame,
             visibleFrame: screen.visibleFrame
