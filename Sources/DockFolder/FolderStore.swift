@@ -29,6 +29,7 @@ final class FolderStore: ObservableObject {
     let dataURL: URL
 
     private let iconCache = NSCache<NSString, NSImage>()
+    private let nameCache = NSCache<NSString, NSString>()
     /// The file's modification date when we last read or wrote it.
     private var knownFileDate: Date?
     private var changeObserver: ObserverToken?
@@ -86,6 +87,16 @@ final class FolderStore: ObservableObject {
     func remove(_ item: FolderItem) {
         reloadIfChangedOnDisk()
         items.removeAll { $0.id == item.id }
+        save()
+    }
+
+    /// Puts an item where the one at `index` is, as when it's dragged there; the rest close up
+    /// around it, so the one that was there moves aside.
+    func move(_ item: FolderItem, to index: Int) {
+        reloadIfChangedOnDisk()
+        let updated = items.moving(item, to: index)
+        guard updated != items else { return }
+        items = updated
         save()
     }
 
@@ -159,7 +170,11 @@ final class FolderStore: ObservableObject {
     }
 
     func displayName(for item: FolderItem) -> String {
-        FileManager.default.displayName(atPath: url(for: item)?.path ?? item.path)
+        let path = (url(for: item)?.path ?? item.path) as NSString
+        if let cached = nameCache.object(forKey: path) { return cached as String }
+        let name = FileManager.default.displayName(atPath: path as String)
+        nameCache.setObject(name as NSString, forKey: path)
+        return name
     }
 
     func icon(for item: FolderItem) -> NSImage {
@@ -264,6 +279,16 @@ final class FolderStore: ObservableObject {
     private func fileDate() -> Date? {
         let attributes = try? FileManager.default.attributesOfItem(atPath: dataURL.path)
         return attributes?[.modificationDate] as? Date
+    }
+}
+
+extension Array where Element == FolderItem {
+    /// The items with `item` taken out and put back in at `index`; the rest close up around it.
+    func moving(_ item: FolderItem, to index: Int) -> [FolderItem] {
+        guard let from = firstIndex(where: { $0.id == item.id }) else { return self }
+        var moved = self
+        moved.insert(moved.remove(at: from), at: Swift.min(Swift.max(index, 0), count - 1))
+        return moved
     }
 }
 

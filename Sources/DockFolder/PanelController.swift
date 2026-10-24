@@ -29,6 +29,8 @@ final class PanelPresentation: ObservableObject {
     @Published var isShown = true
     /// Where the panel grows from: the Dock side, under the pointer.
     @Published var anchor = UnitPoint.bottom
+    /// An app from the Dock is held over the folder.
+    @Published var isDropTargeted = false
 }
 
 struct FolderPanelView: View {
@@ -41,7 +43,8 @@ struct FolderPanelView: View {
     let onAdd: () -> Void
 
     var body: some View {
-        FolderView(store: store, drawsGlass: drawsGlass, arrowKeysTurnPages: true, onOpen: onOpen, onAdd: onAdd)
+        FolderView(store: store, drawsGlass: drawsGlass, arrowKeysTurnPages: true,
+                   showsDropTarget: presentation.isDropTargeted, onOpen: onOpen, onAdd: onAdd)
             .scaleEffect(presentation.isShown ? 1 : 0.86, anchor: presentation.anchor)
             .padding(margin)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -60,6 +63,7 @@ final class PanelController: NSObject, NSWindowDelegate {
     private let panel: FolderPanel
     private let presentation: PanelPresentation
     private let hosting: NSHostingView<FolderPanelView>
+    private let dockDrags = DockDragWatcher()
     private var keyMonitor: Any?
     private var itemsSubscription: AnyCancellable?
     private var lastClose = Date.distantPast
@@ -100,6 +104,21 @@ final class PanelController: NSObject, NSWindowDelegate {
         panel.contentView = Self.usesLiquidGlass ? hosting : Self.makeBackground(containing: hosting)
         panel.delegate = self
 
+        // Apps dragged out of the Dock and let go over the folder go in it.
+        dockDrags.folderFrame = { [weak self] in
+            guard let self else { return .zero }
+            return self.panel.frame.insetBy(dx: Self.glassMargin, dy: Self.glassMargin)
+        }
+        dockDrags.onHover = { [weak self] isOver in
+            guard let self else { return }
+            let targeted = isOver && !self.store.isFull
+            if self.presentation.isDropTargeted != targeted { self.presentation.isDropTargeted = targeted }
+        }
+        dockDrags.onDrop = { [weak self] app in
+            guard let self else { return }
+            if self.store.add([app]) > 0 { NSSound.beep() }   // the folder is full
+        }
+
         // Grow or shrink the open panel as apps are added or removed, or the layout changes.
         // (@Published sends new values before the store has them, so use the values sent.)
         itemsSubscription = Publishers.CombineLatest(store.$items, store.$style).dropFirst().sink { [weak self] items, style in
@@ -129,6 +148,7 @@ final class PanelController: NSObject, NSWindowDelegate {
         panel.alphaValue = 0
         panel.makeKeyAndOrderFront(nil)
         installKeyMonitor()
+        dockDrags.start()
 
         // Next turn of the run loop, so SwiftUI has drawn the small state to grow from.
         DispatchQueue.main.async { [weak self] in
@@ -151,6 +171,7 @@ final class PanelController: NSObject, NSWindowDelegate {
         isOpen = false
         lastClose = Date()
         removeKeyMonitor()
+        dockDrags.stop()
         if hideApp || !animated {
             // Hiding the app takes the panel with it at once, so there's nothing to fade.
             panel.orderOut(nil)
@@ -170,6 +191,7 @@ final class PanelController: NSObject, NSWindowDelegate {
 
     // Clicking anywhere outside the panel makes it lose key status.
     func windowDidResignKey(_ notification: Notification) {
+        FolderDrag.log.notice("the folder lost focus; closing it")
         close(hideApp: false)
     }
 
@@ -223,6 +245,17 @@ final class PanelController: NSObject, NSWindowDelegate {
         keyMonitor = nil
     }
 
+    private static func fill(_ container: NSView, with content: NSView) {
+        content.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(content)
+        NSLayoutConstraint.activate([
+            content.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            content.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            content.topAnchor.constraint(equalTo: container.topAnchor),
+            content.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+        ])
+    }
+
     /// Before macOS 26: a blur behind the window, rounded with a mask.
     private static func makeBackground(containing content: NSView) -> NSView {
         let background = NSVisualEffectView()
@@ -230,15 +263,7 @@ final class PanelController: NSObject, NSWindowDelegate {
         background.blendingMode = .behindWindow
         background.state = .active
         background.maskImage = roundedMask(radius: FolderLayout.cornerRadius)
-
-        content.translatesAutoresizingMaskIntoConstraints = false
-        background.addSubview(content)
-        NSLayoutConstraint.activate([
-            content.leadingAnchor.constraint(equalTo: background.leadingAnchor),
-            content.trailingAnchor.constraint(equalTo: background.trailingAnchor),
-            content.topAnchor.constraint(equalTo: background.topAnchor),
-            content.bottomAnchor.constraint(equalTo: background.bottomAnchor),
-        ])
+        fill(background, with: content)
         return background
     }
 

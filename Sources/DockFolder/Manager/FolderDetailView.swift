@@ -16,7 +16,15 @@ struct FolderDetailView: View {
             VStack(alignment: .leading, spacing: 24) {
                 if folder.isOutdated { updateBanner }
 
-                FolderStage(store: store, onAdd: addApps)
+                VStack(alignment: .leading, spacing: 8) {
+                    FolderStage(folder: folder, store: store, library: library, onAdd: addApps)
+                    Text(library.dockApps.isEmpty
+                         ? "Drag apps around in the folder to rearrange them."
+                         : "Drag apps around in the folder to rearrange them. Drag an app from the Dock below the folder into it to move it out of your Dock.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .padding(.leading, 4)
+                }
 
                 SettingsSection("Colour") {
                     SettingsRow("Glass tint", detail: "Tints the open folder and its Dock icon.") {
@@ -157,25 +165,24 @@ struct FolderDetailView: View {
 /// The folder as it looks above the Dock: its glass panel over the desktop picture,
 /// with its Dock icon underneath on a slice of glass Dock.
 struct FolderStage: View {
+    @ObservedObject var folder: ManagedFolder
     @ObservedObject var store: FolderStore
+    @ObservedObject var library: FolderLibrary
     let onAdd: () -> Void
     @Environment(\.colorScheme) private var colorScheme
+    /// The app being dragged up from the Dock below.
+    @State private var draggedDockApp: URL?
+    @StateObject private var dragEnd = DragEndWatcher()
 
     var body: some View {
         let panel = FolderLayout.panelSize(itemCount: store.items.count, style: store.style)
         let stage = RoundedRectangle(cornerRadius: 24, style: .continuous)
 
         VStack(spacing: 14) {
-            FolderView(store: store, onOpen: { store.open($0) }, onAdd: onAdd)
+            FolderView(store: store, onDockApp: { library.moveFromDock($0, into: folder) },
+                       onOpen: { store.open($0) }, onAdd: onAdd)
                 .frame(width: panel.width, height: panel.height)
-            Image(nsImage: FolderIcon.make(from: store.previewIcons(), tint: store.tint,
-                                           dark: colorScheme == .dark, size: 128))
-                .resizable()
-                .frame(width: 58, height: 58)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 5)
-                .glassBackground(in: RoundedRectangle(cornerRadius: 22, style: .continuous))
-                .help("The folder’s Dock icon")
+            dock
         }
         .padding(.top, 36)
         .padding(.bottom, 18)
@@ -183,6 +190,46 @@ struct FolderStage: View {
         .background { DesktopBackdrop() }
         .clipShape(stage)
         .overlay(stage.strokeBorder(Color.primary.opacity(0.08)))
+    }
+
+    /// The apps in your Dock, then the folder's own icon, on a slice of glass Dock.
+    private var dock: some View {
+        let apps = library.dockApps
+        return HStack(spacing: 12) {
+            if !apps.isEmpty {
+                ScrollView(.horizontal) {
+                    HStack(spacing: 8) {
+                        ForEach(apps, id: \.self) { app in
+                            Image(nsImage: NSWorkspace.shared.icon(forFile: app.path))
+                                .resizable()
+                                .interpolation(.high)
+                                .frame(width: 44, height: 44)
+                                .opacity(draggedDockApp == app ? 0.3 : 1)
+                                .help("\(FileManager.default.displayName(atPath: app.path)): drag it into the folder to move it out of the Dock")
+                                .onDrag {
+                                    draggedDockApp = app
+                                    dragEnd.watch { draggedDockApp = nil }
+                                    return FolderDrag.provider(type: FolderDrag.dockAppType, payload: app.path)
+                                }
+                        }
+                    }
+                    .padding(.horizontal, 2)
+                }
+                .scrollIndicators(.never)
+                .frame(width: min(500, CGFloat(apps.count) * 52))
+                Divider()
+                    .frame(height: 40)
+            }
+            Image(nsImage: FolderIcon.make(from: store.previewIcons(), tint: store.tint,
+                                           dark: colorScheme == .dark, size: 128))
+                .resizable()
+                .frame(width: 58, height: 58)
+                .help("The folder’s Dock icon")
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 5)
+        .glassBackground(in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .animation(.spring(response: 0.3, dampingFraction: 0.8), value: apps)
     }
 }
 

@@ -12,6 +12,15 @@ enum DockPreferences {
         Set(persistentApps().compactMap(path(ofTile:)))
     }
 
+    /// The apps kept in the Dock, in Dock order.
+    static func appURLs() -> [URL] {
+        appURLs(inTiles: persistentApps())
+    }
+
+    static func appURLs(inTiles tiles: [[String: Any]]) -> [URL] {
+        tiles.compactMap(path(ofTile:)).map { URL(fileURLWithPath: $0, isDirectory: true) }
+    }
+
     static func contains(_ app: URL) -> Bool {
         appPaths().contains(app.standardizedFileURL.path)
     }
