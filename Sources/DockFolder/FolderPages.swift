@@ -5,10 +5,14 @@ import SwiftUI
 /// or (in the panel above the Dock) use the arrow keys to turn the page.
 struct FolderPages: View {
     @ObservedObject var store: FolderStore
+    /// The apps in the order shown: the folder's, or the order an app is being moved through.
+    let items: [FolderItem]
+    @Binding var page: Int
+    /// The app being moved, which leaves a gap where it goes.
+    let moving: FolderItem?
     let arrowKeysTurnPages: Bool
     let onOpen: (FolderItem) -> Void
 
-    @State private var page = 0
     /// How far the pages have followed the fingers in the current swipe…
     @State private var swipe: CGFloat = 0
     /// …and how far the fingers moved, before the stretch at the first and last page.
@@ -18,15 +22,17 @@ struct FolderPages: View {
     private static let gap: CGFloat = 36
 
     var body: some View {
-        let pages = store.items.chunked(into: FolderLayout.appsPerPage)
-        let grid = FolderLayout.gridSize(itemCount: store.items.count, style: .pages)
-        let current = min(page, max(pages.count - 1, 0))
+        let pages = items.chunked(into: FolderLayout.appsPerPage)
+        let grid = FolderLayout.gridSize(itemCount: items.count, style: .pages)
+        let current = FolderLayout.clampedPage(page, count: items.count)
 
         VStack(spacing: 0) {
             HStack(alignment: .top, spacing: Self.gap) {
                 ForEach(pages.indices, id: \.self) { index in
-                    AppGrid(items: pages[index], columns: 3, store: store, onOpen: onOpen)
+                    AppGrid(items: pages[index], columns: 3, store: store, moving: moving, onOpen: onOpen)
                         .frame(width: grid.width, height: grid.height, alignment: .topLeading)
+                        // Pages out of sight take no clicks or hovers.
+                        .allowsHitTesting(index == current)
                 }
             }
             .offset(x: -CGFloat(current) * (grid.width + Self.gap) + swipe)

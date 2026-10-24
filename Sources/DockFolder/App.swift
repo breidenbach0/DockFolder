@@ -119,6 +119,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool { true }
 
+    /// So the Dock doesn't go on showing an old icon once we've quit.
+    func applicationWillTerminate(_ notification: Notification) {
+        writePendingBundleIcon()
+    }
+
     // MARK: - Actions
 
     @objc private func addAppsFromMenu() { addApps() }
@@ -161,7 +166,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// Custom Finder icon on our own bundle, so the Dock shows it while we're not running.
+    /// Writing it holds things up for a moment, so it waits while the folder is open.
     @objc private func writeBundleIcon() {
+        guard pendingBundleIcon != nil else { return }
+        if panel.isOpen {
+            perform(#selector(writeBundleIcon), with: nil, afterDelay: 1)
+        } else {
+            writePendingBundleIcon()
+        }
+    }
+
+    private func writePendingBundleIcon() {
         guard let image = pendingBundleIcon else { return }
         pendingBundleIcon = nil
         _ = NSWorkspace.shared.setIcon(image, forFile: Bundle.main.bundlePath, options: [])

@@ -46,14 +46,22 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <key>CFBundleName</key><string>${NAME}</string>
     <key>CFBundleDisplayName</key><string>${NAME}</string>
     <key>CFBundlePackageType</key><string>APPL</string>
-    <key>CFBundleShortVersionString</key><string>0.3.0</string>
-    <key>CFBundleVersion</key><string>3</string>
+    <key>CFBundleShortVersionString</key><string>0.4.0</string>
+    <key>CFBundleVersion</key><string>4</string>
     <key>CFBundleIconFile</key><string>AppIcon</string>
     <key>DockFolderRole</key><string>manager</string>
     <key>DockFolderBuild</key><string>${BUILD_STAMP}</string>
     <key>LSMinimumSystemVersion</key><string>13.0</string>
     <key>NSHighResolutionCapable</key><true/>
     <key>NSPrincipalClass</key><string>NSApplication</string>
+    <key>UTExportedTypeDeclarations</key>
+    <array>
+        <dict>
+            <key>UTTypeIdentifier</key><string>dev.local.dockfolder.dock-app</string>
+            <key>UTTypeDescription</key><string>App being moved from the Dock into a folder</string>
+            <key>UTTypeConformsTo</key><array><string>public.data</string></array>
+        </dict>
+    </array>
     <key>CFBundleDocumentTypes</key>
     <array>
         <dict>

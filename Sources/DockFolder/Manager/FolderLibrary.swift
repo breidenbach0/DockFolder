@@ -66,6 +66,10 @@ final class FolderLibrary: ObservableObject {
     @Published private(set) var folders: [ManagedFolder] = []
     /// Set to show the New Folder sheet, with any apps it should start with.
     @Published var newFolderRequest: NewFolderRequest?
+    /// The apps kept in the Dock, in Dock order, except folders. Shown under a folder in the
+    /// window, to be dragged into it.
+    @Published private(set) var dockApps: [URL] = []
+    private var dockRestart: Task<Void, Never>?
 
     let factory: FolderFactory
     private let dataDirectory: URL?
@@ -151,14 +155,24 @@ final class FolderLibrary: ObservableObject {
         refreshStatus()
     }
 
+    /// An app from the Dock that can go in a folder: one that's there, and not a folder itself.
+    private static func canMoveIntoFolder(_ url: URL) -> Bool {
+        guard url.pathExtension == "app", FileManager.default.fileExists(atPath: url.path) else { return false }
+        let info = NSDictionary(contentsOf: url.appendingPathComponent("Contents/Info.plist"))
+        return info?["CFBundleExecutable"] as? String != "DockFolder"
+    }
+
     private static func preference(of url: URL, dock: Set<String>) -> (Int, Date) {
         let modified = (try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
         return (dock.contains(url.standardizedFileURL.path) ? 1 : 0, modified)
     }
 
-    /// Whether each folder is running, kept in the Dock, and made by this build.
+    /// Whether each folder is running, kept in the Dock, and made by this build; and what's in the Dock.
     func refreshStatus() {
-        let dock = DockPreferences.appPaths()
+        let dockURLs = DockPreferences.appURLs()
+        let movable = dockURLs.filter(Self.canMoveIntoFolder)
+        if movable != dockApps { dockApps = movable }
+        let dock = Set(dockURLs.map { $0.standardizedFileURL.path })
         for folder in folders {
             let running = folder.checkRunning()
             let inDock = dock.contains(folder.url.standardizedFileURL.path)
@@ -192,6 +206,23 @@ final class FolderLibrary: ObservableObject {
         reload()
         launch(folder)
         return folder
+    }
+
+    /// Moves an app from the Dock into a folder. The Dock restarts to let go of its icon once,
+    /// a moment after the last move, so several apps can be moved in a row. Returns false, and
+    /// leaves the Dock alone, if the folder is full.
+    @discardableResult
+    func moveFromDock(_ app: URL, into folder: ManagedFolder) -> Bool {
+        guard folder.store.add([app]) == 0 else { return false }
+        DockPreferences.remove(app)
+        refreshStatus()
+        dockRestart?.cancel()
+        dockRestart = Task {
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            guard !Task.isCancelled else { return }
+            DockPreferences.restartDock()
+        }
+        return true
     }
 
     /// Starts the folder in the background, so its Dock icon shows its apps and reacts to clicks.

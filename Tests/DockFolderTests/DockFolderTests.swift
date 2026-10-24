@@ -75,6 +75,51 @@ final class FolderLayoutTests: XCTestCase {
         XCTAssertFalse(FolderLayout.showsPageDots(for: 36, style: .grid))
     }
 
+    func testTheCellUnderThePointerIsCountedFromTheTopLeft() {
+        // Cells are 88 × 94 with 6 between them.
+        XCTAssertEqual(FolderLayout.cell(at: CGPoint(x: 10, y: 10), columns: 3), 0)
+        XCTAssertEqual(FolderLayout.cell(at: CGPoint(x: 100, y: 10), columns: 3), 1)
+        XCTAssertEqual(FolderLayout.cell(at: CGPoint(x: 10, y: 110), columns: 3), 3)
+        XCTAssertEqual(FolderLayout.cell(at: CGPoint(x: 200, y: 210), columns: 3), 8)
+        XCTAssertEqual(FolderLayout.cell(at: CGPoint(x: 500, y: 10), columns: 6), 5)
+        XCTAssertNil(FolderLayout.cell(at: CGPoint(x: 300, y: 10), columns: 3))
+        XCTAssertNil(FolderLayout.cell(at: CGPoint(x: -1, y: 10), columns: 3))
+    }
+
+    func testAnAppIsPickedUpOnlyFromACellThatHoldsOne() {
+        // 11 apps: the second page holds two.
+        XCTAssertEqual(FolderLayout.app(at: CGPoint(x: 10, y: 10), page: 0, count: 11, style: .pages), 0)
+        XCTAssertEqual(FolderLayout.app(at: CGPoint(x: 100, y: 10), page: 1, count: 11, style: .pages), 10)
+        XCTAssertNil(FolderLayout.app(at: CGPoint(x: 200, y: 10), page: 1, count: 11, style: .pages))
+        XCTAssertNil(FolderLayout.app(at: CGPoint(x: 10, y: -5), page: 0, count: 11, style: .pages))
+    }
+
+    func testAMovedAppGoesToTheNearestPlace() {
+        // Beside the apps: the nearest column. Below them: the last row. Past the last app: last.
+        XCTAssertEqual(FolderLayout.place(at: CGPoint(x: -15, y: 110), page: 0, count: 20, style: .pages), 3)
+        XCTAssertEqual(FolderLayout.place(at: CGPoint(x: 400, y: 10), page: 1, count: 20, style: .pages), 11)
+        XCTAssertEqual(FolderLayout.place(at: CGPoint(x: 10, y: 500), page: 0, count: 20, style: .pages), 6)
+        XCTAssertEqual(FolderLayout.place(at: CGPoint(x: 200, y: 210), page: 2, count: 20, style: .pages), 19)
+        XCTAssertEqual(FolderLayout.place(at: CGPoint(x: 300, y: 110), page: 0, count: 20, style: .grid), 9)
+        XCTAssertNil(FolderLayout.place(at: CGPoint(x: 10, y: -1), page: 0, count: 20, style: .pages))
+    }
+
+    func testHoldingAnAppAtASideTurnsOnlyTowardsAPage() {
+        // 20 apps make three pages.
+        XCTAssertNil(FolderLayout.pageTurn(at: CGPoint(x: 5, y: 100), page: 0, count: 20, style: .pages))
+        XCTAssertEqual(FolderLayout.pageTurn(at: CGPoint(x: -10, y: 100), page: 1, count: 20, style: .pages), -1)
+        XCTAssertEqual(FolderLayout.pageTurn(at: CGPoint(x: 270, y: 100), page: 1, count: 20, style: .pages), 1)
+        XCTAssertNil(FolderLayout.pageTurn(at: CGPoint(x: 270, y: 100), page: 2, count: 20, style: .pages))
+        XCTAssertNil(FolderLayout.pageTurn(at: CGPoint(x: 140, y: 100), page: 1, count: 20, style: .pages))
+        XCTAssertNil(FolderLayout.pageTurn(at: CGPoint(x: 270, y: 100), page: 0, count: 20, style: .grid))
+    }
+
+    func testAnAppSettlesIntoTheMiddleOfItsCell() {
+        XCTAssertEqual(FolderLayout.center(of: 0, count: 9, style: .pages), CGPoint(x: 44, y: 47))
+        XCTAssertEqual(FolderLayout.center(of: 13, count: 20, style: .pages), CGPoint(x: 138, y: 147))
+        XCTAssertEqual(FolderLayout.center(of: 7, count: 20, style: .grid), CGPoint(x: 138, y: 147))
+    }
+
     func testEmptyFolderStillHasOneRow() {
         XCTAssertEqual(FolderLayout.visibleRows(for: 0, style: .pages), 1)
         XCTAssertEqual(FolderLayout.visibleRows(for: 0, style: .grid), 1)
@@ -144,6 +189,22 @@ final class FolderStoreTests: XCTestCase {
         let reopened = FolderStore(name: "Old", bundleID: "dev.local.dockfolder.old", directory: directory)
         XCTAssertEqual(reopened.items.map(\.path), [calculator.path])
         XCTAssertEqual(reopened.tint, .clear)
+    }
+
+    @MainActor
+    func testADraggedAppTakesTheSpotItIsDroppedOn() {
+        let store = FolderStore(name: "Order", bundleID: "dev.local.dockfolder.order", directory: makeDirectory())
+        store.add(["A", "B", "C", "D", "E"].map { URL(fileURLWithPath: "/Applications/\($0).app") })
+        let names = { store.items.map { URL(fileURLWithPath: $0.path).deletingPathExtension().lastPathComponent } }
+
+        store.move(store.items[0], to: 3)   // A onto D: D moves aside to the left
+        XCTAssertEqual(names(), ["B", "C", "D", "A", "E"])
+        store.move(store.items[4], to: 0)   // E onto B: B moves aside to the right
+        XCTAssertEqual(names(), ["E", "B", "C", "D", "A"])
+        store.move(store.items[2], to: 99)  // past the end: last
+        XCTAssertEqual(names(), ["E", "B", "D", "A", "C"])
+        XCTAssertEqual(FolderStore(name: "Order", bundleID: "dev.local.dockfolder.order", directory: store.dataURL.deletingLastPathComponent())
+                        .items.map(\.path), store.items.map(\.path), "the new order is saved")
     }
 
     @MainActor
@@ -476,7 +537,65 @@ final class PageSwipeTests: XCTestCase {
     }
 }
 
+final class RearrangementTests: XCTestCase {
+    private let apps = (0..<5).map { FolderItem(id: UUID(), path: "/Applications/App\($0).app", bundleID: nil) }
+
+    func testMovingAnAppClosesUpAroundIt() {
+        XCTAssertEqual(apps.moving(apps[0], to: 3), [1, 2, 3, 0, 4].map { apps[$0] })
+        XCTAssertEqual(apps.moving(apps[4], to: 1), [0, 4, 1, 2, 3].map { apps[$0] })
+        XCTAssertEqual(apps.moving(apps[2], to: 99), [0, 1, 3, 4, 2].map { apps[$0] })
+    }
+
+    @MainActor
+    func testAnAppBeingMovedTakesThePlaceUnderThePointerUntilLetGo() {
+        let move = Rearrangement()
+        move.pickUp(apps[0], from: apps, at: CGPoint(x: 60, y: 100), center: CGPoint(x: 62, y: 107))
+        move.follow(CGPoint(x: 160, y: 100), to: 2, turning: nil) { _ in }
+        XCTAssertEqual(move.order, [1, 2, 0, 3, 4].map { apps[$0] })
+        XCTAssertEqual(move.tile.center, CGPoint(x: 162, y: 107))   // where it was grabbed stays under the pointer
+        move.putDown(settlingAt: nil)
+        XCTAssertNil(move.item)
+        XCTAssertNil(move.movingItem)
+    }
+
+    @MainActor
+    func testTheArcShowsOnlyWhileTheAppIsHeldAtASide() {
+        let move = Rearrangement()
+        move.pickUp(apps[0], from: apps, at: .zero, center: .zero)
+        move.follow(CGPoint(x: 5, y: 100), to: 0, turning: -1) { _ in }
+        XCTAssertEqual(move.turnSide, -1)
+        move.follow(CGPoint(x: 150, y: 100), to: 1, turning: nil) { _ in }
+        XCTAssertNil(move.turnSide)
+        move.follow(CGPoint(x: 300, y: 100), to: 2, turning: 1) { _ in }
+        move.putDown(settlingAt: CGPoint(x: 200, y: 100))
+        XCTAssertNil(move.turnSide)
+        XCTAssertNil(move.movingItem)   // let go, settling into its place
+    }
+}
+
+final class DockDragTests: XCTestCase {
+    func testTheAppTheDockRemovedIsFound() {
+        let before = ["Safari", "Mail", "Notes"].map { URL(fileURLWithPath: "/Applications/\($0).app", isDirectory: true) }
+        let after = [before[0], before[2]]
+        XCTAssertEqual(DockDragWatcher.removedApp(before: before, after: after)?.lastPathComponent, "Mail.app")
+    }
+
+    func testRearrangingTheDockRemovesNothing() {
+        let before = ["Safari", "Mail", "Notes"].map { URL(fileURLWithPath: "/Applications/\($0).app", isDirectory: true) }
+        // The Dock saves its tiles as file URLs ending in a slash; that's the same app.
+        let after = [URL(string: "file:///Applications/Notes.app/")!, before[0], before[1]]
+        XCTAssertNil(DockDragWatcher.removedApp(before: before, after: after))
+    }
+}
+
 final class DockPreferencesTests: XCTestCase {
+    func testTheDocksAppsComeInDockOrder() {
+        let tiles: [[String: Any]] = ["Safari", "Mail", "Notes"].map { name in
+            ["tile-data": ["file-data": ["_CFURLString": "file:///Applications/\(name).app/", "_CFURLStringType": 15]]]
+        }
+        XCTAssertEqual(DockPreferences.appURLs(inTiles: tiles).map(\.lastPathComponent), ["Safari.app", "Mail.app", "Notes.app"])
+    }
+
     func testTilesSavedByTheDockAndByDefaultsWriteBothResolve() {
         let savedByDock: [String: Any] = ["tile-data": ["file-data": [
             "_CFURLString": "file:///Users/me/Applications/Dock%20Folders/Design.app/", "_CFURLStringType": 15]]]
