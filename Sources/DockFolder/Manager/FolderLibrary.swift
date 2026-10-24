@@ -261,6 +261,22 @@ final class FolderLibrary: ObservableObject {
         refreshStatus()
     }
 
+    /// Updates every folder made by another build, as after DockFolder updated itself.
+    /// Returns the names of any that couldn't be updated.
+    func updateOutdatedFolders() async -> [String] {
+        refreshStatus()
+        var failed: [String] = []
+        for folder in folders where folder.isOutdated {
+            do {
+                try await update(folder)
+            } catch {
+                Updater.log.error("couldn't update \(folder.name, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                failed.append(folder.name)
+            }
+        }
+        return failed
+    }
+
     /// Why `folder` can't be renamed to `name`, or nil if it can.
     func problem(renaming folder: ManagedFolder, to name: String) -> String? {
         do {

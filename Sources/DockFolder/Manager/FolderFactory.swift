@@ -192,7 +192,7 @@ struct FolderFactory {
     /// A DockFolder downloaded from the web carries a quarantine flag. Copying would pass it on,
     /// and every new folder would need approving in Privacy & Security. Folders run the same code
     /// the user approved when they first opened DockFolder.
-    private static func removeQuarantine(from bundle: URL) {
+    static func removeQuarantine(from bundle: URL) {
         removexattr(bundle.path, "com.apple.quarantine", XATTR_NOFOLLOW)
         guard let items = FileManager.default.enumerator(atPath: bundle.path) else { return }
         for case let item as String in items {

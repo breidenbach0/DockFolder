@@ -3,6 +3,7 @@ import SwiftUI
 /// The DockFolder window: folders in the sidebar, the selected one on the right.
 struct ManagerView: View {
     @ObservedObject var library: FolderLibrary
+    @ObservedObject var updater: Updater
     @State private var selection: ManagedFolder.ID?
     @State private var renaming: ManagedFolder?
 
@@ -23,6 +24,7 @@ struct ManagerView: View {
                 }
             }
             .navigationSplitViewColumnWidth(min: 210, ideal: 240, max: 320)
+            .safeAreaInset(edge: .bottom) { UpdateCard(updater: updater) }
             .toolbar {
                 ToolbarItem {
                     Button {
@@ -49,6 +51,11 @@ struct ManagerView: View {
             }
         }
         .frame(minWidth: 800, minHeight: 560)
+        .alert("You’re Up to Date", isPresented: $updater.isShowingUpToDate) {
+            Button("OK") {}
+        } message: {
+            Text("DockFolder \(updater.currentVersion?.description ?? "") is the newest version.")
+        }
         .sheet(item: $library.newFolderRequest) { request in
             NewFolderSheet(library: library, initialApps: request.apps) { folder in
                 selection = folder.id

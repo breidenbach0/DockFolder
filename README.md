@@ -60,6 +60,8 @@ A full folder turns away more apps. You can only switch to a layout that has roo
   <img src="docs/images/window-dark.png" width="700" alt="The DockFolder window, with folders in the sidebar and the selected folder previewed as a purple glass panel over a desktop picture.">
 </picture>
 
+**Update.** DockFolder looks for a new version on GitHub when you open it, and once a day while it's open. When there is one, a card at the bottom of the sidebar offers **Install Update**: DockFolder downloads it, checks it against the release, puts it in place of itself, starts again and updates your folders, which keep their apps, colours and places in the Dock. **DockFolder › Check for Updates…** looks right away; turn off **Check for Updates Automatically** in the same menu to stop the daily look. (Installing needs DockFolder in a folder you can write to, such as Applications.)
+
 **Uninstall.** Delete your folders in the DockFolder window, then drag DockFolder from Applications to the Trash. Folder settings live in `~/Library/Application Support/DockFolder`.
 
 ## Build from source
@@ -73,9 +75,9 @@ scripts/build-app.sh          # builds build/DockFolder.app (Apple silicon and I
 open build/DockFolder.app     # the DockFolder window
 ```
 
-- `scripts/make-dmg.sh` builds `build/DockFolder.dmg`, the download.
+- `scripts/make-dmg.sh` builds `build/DockFolder.dmg`, the download, and `build/DockFolder.zip`, which the in-app updater installs. Attach both to a release, and bump the version in `scripts/build-app.sh` first: the updater only installs a release whose app has the version its tag says.
 - `scripts/make-folder.sh "Design" --pin` makes a folder without the window.
-- `swift test` runs the tests: grid placement, layout sizes and limits, page swipes, rearranging, app drops, saving, colours, edits from two processes, bundle IDs and names, building, rebuilding and renaming signed folders, Dock tiles and the app icon.
+- `swift test` runs the tests: grid placement, layout sizes and limits, page swipes, rearranging, saving, colours, edits from two processes, bundle IDs and names, building, rebuilding and renaming signed folders, Dock tiles, the app icon, and updating DockFolder from a stand-in release.
 - `open Package.swift` edits it in Xcode. Running from Xcode starts a bare binary that runs as a folder; pass `-DockFolderRole manager` to get the DockFolder window (making folders needs the app bundle). To test real Dock behaviour, build the app and make a folder.
 
 Folders are copied from the DockFolder app you run, so after rebuilding, click **Update** on each folder.
@@ -112,6 +114,8 @@ Folders are copied from the DockFolder app you run, so after rebuilding, click *
 | `Manager/FolderLibrary.swift` | Finds the folders; makes, renames, updates and deletes them; Dock and running status |
 | `Manager/FolderFactory.swift` | Builds folder apps from `DockFolder.app`, the same steps as `make-folder.sh` |
 | `Manager/DockPreferences.swift` | Reads and writes the apps kept in the Dock |
+| `Manager/Updater.swift` | Looks for new releases on GitHub, installs them in place of DockFolder, and updates the folders after |
+| `Manager/UpdateCard.swift` | The card at the bottom of the sidebar about an update |
 
 The website lives in `docs/` and is served by GitHub Pages.
 
