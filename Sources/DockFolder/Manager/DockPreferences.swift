@@ -9,12 +9,12 @@ enum DockPreferences {
 
     /// Paths of the apps kept in the Dock.
     static func appPaths() -> Set<String> {
-        Set(persistentApps().compactMap(path(ofTile:)))
+        Set((persistentApps() ?? []).compactMap(path(ofTile:)))
     }
 
     /// The apps kept in the Dock, in Dock order.
     static func appURLs() -> [URL] {
-        appURLs(inTiles: persistentApps())
+        appURLs(inTiles: persistentApps() ?? [])
     }
 
     static func appURLs(inTiles tiles: [[String: Any]]) -> [URL] {
@@ -26,8 +26,7 @@ enum DockPreferences {
     }
 
     static func add(_ app: URL) {
-        guard !contains(app) else { return }
-        var apps = persistentApps()
+        guard !contains(app), var apps = persistentApps() else { return }
         apps.append([
             "tile-data": ["file-data": ["_CFURLString": app.absoluteString, "_CFURLStringType": 15]],
             "tile-type": "file-tile",
@@ -36,13 +35,15 @@ enum DockPreferences {
     }
 
     static func remove(_ app: URL) {
+        guard let apps = persistentApps() else { return }
         let path = app.standardizedFileURL.path
-        save(persistentApps().filter { self.path(ofTile: $0) != path })
+        save(apps.filter { self.path(ofTile: $0) != path })
     }
 
     /// Points the Dock tile for `old` at `new`, keeping its place in the Dock.
     static func replace(_ old: URL, with new: URL) {
-        save(replacingTile(for: old, with: new, in: persistentApps()))
+        guard let apps = persistentApps() else { return }
+        save(replacingTile(for: old, with: new, in: apps))
     }
 
     /// The tiles, with the one for `old` pointing at `new`. Its saved bookmark and label are
@@ -77,9 +78,11 @@ enum DockPreferences {
         return url?.standardizedFileURL.path
     }
 
-    private static func persistentApps() -> [[String: Any]] {
+    /// The Dock's tiles, or nil if they can't be read as tiles. Nothing is written then: a list
+    /// made up from a failed read would replace everything the user keeps in the Dock.
+    private static func persistentApps() -> [[String: Any]]? {
         CFPreferencesAppSynchronize(domain)
-        return CFPreferencesCopyAppValue(key, domain) as? [[String: Any]] ?? []
+        return CFPreferencesCopyAppValue(key, domain) as? [[String: Any]]
     }
 
     private static func save(_ apps: [[String: Any]]) {

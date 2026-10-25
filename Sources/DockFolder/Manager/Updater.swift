@@ -37,8 +37,10 @@ struct AppVersion: Comparable, CustomStringConvertible, Sendable {
 
 /// A DockFolder release on GitHub.
 struct Release: Equatable, Sendable {
-    /// What the updater installs: the app, zipped. Releases also carry DockFolder.dmg for people.
+    /// What the updater installs: the app, zipped, and its signature. Releases also carry
+    /// DockFolder.dmg, for people.
     static let archiveName = "DockFolder.zip"
+    static let signatureName = "DockFolder.zip.sig"
 
     var version: AppVersion
     var title: String
@@ -46,8 +48,8 @@ struct Release: Equatable, Sendable {
     var page: URL
     /// The zipped app. Nil for a release without one: it can only be downloaded from its page.
     var archive: URL?
-    /// The archive's SHA-256 as GitHub reports it, to check the download against.
-    var sha256: String?
+    /// The archive's signature, made with the key in the developer's Keychain (scripts/sign-update.swift).
+    var signature: URL?
 
     /// The release in GitHub's answer about the latest release. Nil for a draft, a prerelease,
     /// or a tag that isn't a version number.
@@ -57,19 +59,17 @@ struct Release: Equatable, Sendable {
         guard let payload = try? decoder.decode(Payload.self, from: data),
               payload.draft != true, payload.prerelease != true,
               let version = AppVersion(payload.tagName) else { return nil }
-        let asset = payload.assets.first { $0.name == Self.archiveName }
         self.version = version
         title = payload.name ?? "DockFolder \(version)"
         page = payload.htmlUrl
-        archive = asset?.browserDownloadUrl
-        sha256 = asset?.digest.flatMap { $0.hasPrefix("sha256:") ? String($0.dropFirst(7)).lowercased() : nil }
+        archive = payload.assets.first { $0.name == Self.archiveName }?.browserDownloadUrl
+        signature = payload.assets.first { $0.name == Self.signatureName }?.browserDownloadUrl
     }
 
     private struct Payload: Decodable {
         struct Asset: Decodable {
             let name: String
             let browserDownloadUrl: URL
-            let digest: String?
         }
 
         let tagName: String
@@ -85,18 +85,38 @@ struct Release: Equatable, Sendable {
 struct UpdateSource {
     /// GitHub's API address for the latest release.
     var latestRelease: URL
-    /// Updates are only downloaded from addresses that start with this.
+    /// Updates are only downloaded from below this address…
     var downloadPrefix: String
+    /// …and only release pages below this one are opened.
+    var pagePrefix = "https://github.com/breidenbach0/DockFolder/"
+    /// Updates must be signed with the private half of this key.
+    var signingKey: Curve25519.Signing.PublicKey
 
     static let gitHub = UpdateSource(
         latestRelease: URL(string: "https://api.github.com/repos/breidenbach0/DockFolder/releases/latest")!,
-        downloadPrefix: "https://github.com/breidenbach0/DockFolder/releases/download/")
+        downloadPrefix: "https://github.com/breidenbach0/DockFolder/releases/download/",
+        signingKey: try! Curve25519.Signing.PublicKey(rawRepresentation: Data(base64Encoded: releaseKey)!))
+
+    /// The public half of the key DockFolder's releases are signed with. The private half stays in
+    /// the developer's Keychain, so getting into the GitHub account isn't enough to fake an update.
+    static let releaseKey = "DktXK+HSJfO+3nf4aaf36vHyq7hbmKWyeXEtpVsTciA="
+
+    func allowsDownload(from url: URL) -> Bool { Self.isBelow(url, downloadPrefix) }
+
+    func allowsPage(_ url: URL) -> Bool { Self.isBelow(url, pagePrefix) }
+
+    /// Whether `url` starts with `prefix` and has no way back up out of it, however it's spelled.
+    static func isBelow(_ url: URL, _ prefix: String) -> Bool {
+        let text = url.absoluteString
+        return text.hasPrefix(prefix) && !url.pathComponents.contains("..") && !text.lowercased().contains("%2e")
+    }
 }
 
 /// Puts a downloaded DockFolder in place of the one running.
 struct UpdateInstaller {
     enum Failure: LocalizedError, Equatable {
         case damaged
+        case notSigned
         case notDockFolder
         case wrongVersion(String)
         case cantReplace(String)
@@ -105,7 +125,9 @@ struct UpdateInstaller {
         var errorDescription: String? {
             switch self {
             case .damaged:
-                return "The download is damaged: it doesn’t match the release on GitHub."
+                return "The download is damaged, or isn’t a DockFolder update."
+            case .notSigned:
+                return "The update isn’t signed with DockFolder’s key, so it wasn’t installed. You can download it from GitHub yourself instead."
             case .notDockFolder:
                 return "The download doesn’t contain DockFolder."
             case .wrongVersion(let version):
@@ -121,27 +143,34 @@ struct UpdateInstaller {
     /// The DockFolder app's bundle ID. An update must have the same.
     var bundleID = "dev.local.dockfolder"
 
-    /// Checks the zipped app against `sha256`, unpacks it, checks it's DockFolder `version` with
-    /// its signature intact, and swaps it in for `app`. `app` stays as it was if anything fails.
-    func install(archive: URL, sha256: String?, version: AppVersion, over app: URL) throws {
-        if let sha256, try Self.sha256(of: archive) != sha256.lowercased() { throw Failure.damaged }
+    /// Far more than DockFolder needs; anything bigger isn't a DockFolder update.
+    static let maxArchiveSize = 100_000_000
+
+    /// Checks the zipped app was signed with `key` and unpacks it, leaving behind any attributes,
+    /// access lists or loose permissions it might carry. Then checks the copy it's about to
+    /// install is DockFolder `version` with its code signature intact, and swaps it in for
+    /// `app`. `app` stays as it was if anything fails.
+    func install(archive: URL, signature: Data, signedBy key: Curve25519.Signing.PublicKey,
+                 version: AppVersion, over app: URL) throws {
+        let size = (try? archive.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0
+        guard size <= Self.maxArchiveSize else { throw Failure.damaged }
+        guard key.isValidSignature(signature, for: try Data(contentsOf: archive)) else { throw Failure.notSigned }
 
         let fileManager = FileManager.default
         let unpacked = fileManager.temporaryDirectory
             .appendingPathComponent("DockFolder-update-\(UUID().uuidString)", isDirectory: true)
         defer { try? fileManager.removeItem(at: unpacked) }
+        // Unpacked as it was packed (ditto turns stored attributes back into attributes, not files),
+        // then copied below without any of them.
         try Self.run("/usr/bin/ditto", ["-x", "-k", archive.path, unpacked.path])
 
+        // The app itself, not a link to something else on the disk.
         let update = unpacked.appendingPathComponent("DockFolder.app", isDirectory: true)
-        guard let info = NSDictionary(contentsOf: update.appendingPathComponent("Contents/Info.plist")) as? [String: Any],
-              info["CFBundleIdentifier"] as? String == bundleID,
-              info[AppRole.infoKey] as? String == "manager" else { throw Failure.notDockFolder }
-        let shipped = info["CFBundleShortVersionString"] as? String ?? "?"
-        guard AppVersion(shipped) == version else { throw Failure.wrongVersion(shipped) }
-        try Self.run("/usr/bin/codesign", ["--verify", update.path])
-        FolderFactory.removeQuarantine(from: update)
+        let kind = try? update.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
+        guard kind?.isDirectory == true, kind?.isSymbolicLink == false else { throw Failure.notDockFolder }
 
         // Copied next to the app first, so swapping it in is one quick step on the same disk.
+        // That copy is what's checked, and then installed.
         let staging: URL
         do {
             staging = try fileManager.url(for: .itemReplacementDirectory, in: .userDomainMask,
@@ -151,13 +180,29 @@ struct UpdateInstaller {
         }
         defer { try? fileManager.removeItem(at: staging) }
         let staged = staging.appendingPathComponent(app.lastPathComponent, isDirectory: true)
-        try Self.run("/usr/bin/ditto", [update.path, staged.path])
+        try Self.run("/usr/bin/ditto", Self.plainCopy + [update.path, staged.path])
+        // Only its owner may change it, and nothing in it runs as anyone else.
+        try Self.run("/bin/chmod", ["-R", "go-w,ug-s", staged.path])
+        try verify(staged, version: version)
         do {
             _ = try fileManager.replaceItemAt(app, withItemAt: staged, backupItemName: nil, options: .usingNewMetadataOnly)
         } catch {
             throw Failure.cantReplace(error.localizedDescription)
         }
     }
+
+    /// Checks `app` is DockFolder `version`, with its signature intact.
+    private func verify(_ app: URL, version: AppVersion) throws {
+        guard let info = NSDictionary(contentsOf: app.appendingPathComponent("Contents/Info.plist")) as? [String: Any],
+              info["CFBundleIdentifier"] as? String == bundleID,
+              info[AppRole.infoKey] as? String == "manager" else { throw Failure.notDockFolder }
+        let shipped = info["CFBundleShortVersionString"] as? String ?? "?"
+        guard AppVersion(shipped) == version else { throw Failure.wrongVersion(shipped) }
+        try Self.run("/usr/bin/codesign", ["--verify", "--strict", app.path])
+    }
+
+    /// ditto options that copy files and nothing else: no extended attributes, quarantine or ACLs.
+    private static let plainCopy = ["--norsrc", "--noextattr", "--noqtn", "--noacl"]
 
     static func sha256(of file: URL) throws -> String {
         let handle = try FileHandle(forReadingFrom: file)
@@ -225,8 +270,11 @@ final class Updater: ObservableObject {
     private let relaunch: @MainActor (URL) -> Bool
     private var timer: Timer?
 
+    /// Keeps no cookies or cache, so update checks can't be told apart.
+    nonisolated static let session = URLSession(configuration: .ephemeral)
+
     init(source: UpdateSource = .gitHub, app: URL = Bundle.main.bundleURL,
-         currentVersion: AppVersion? = .current, session: URLSession = .shared,
+         currentVersion: AppVersion? = .current, session: URLSession = Updater.session,
          defaults: UserDefaults = .standard, relaunch: @escaping @MainActor (URL) -> Bool = Updater.relaunch(_:)) {
         self.source = source
         self.app = app
@@ -265,6 +313,7 @@ final class Updater: ObservableObject {
         timer = Timer.scheduledTimer(withTimeInterval: 3600, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.checkIfDue(after: 24 * 3600) }
         }
+        timer?.tolerance = 600
     }
 
     private func checkIfDue(after interval: TimeInterval) {
@@ -289,7 +338,7 @@ final class Updater: ObservableObject {
                 if userInitiated { isShowingUpToDate = true }
             }
         } catch {
-            Self.log.error("checking for updates failed: \(error.localizedDescription, privacy: .public)")
+            Self.log.error("checking for updates failed: \(error.localizedDescription)")
             if userInitiated {
                 state = .failed(nil, "Couldn’t check for updates: \(error.localizedDescription)")
             }
@@ -312,15 +361,20 @@ final class Updater: ObservableObject {
     func install(_ release: Release) async {
         guard !isBusy else { return }
         guard canInstall, let archive = release.archive else {
-            NSWorkspace.shared.open(release.page)
+            openPage(of: release)
             return
         }
-        guard archive.absoluteString.hasPrefix(source.downloadPrefix) else {
+        guard let signature = release.signature else {
+            state = .failed(release, UpdateInstaller.Failure.notSigned.localizedDescription)
+            return
+        }
+        guard source.allowsDownload(from: archive), source.allowsDownload(from: signature) else {
             state = .failed(release, "The update isn’t where DockFolder’s releases are, so it wasn’t downloaded.")
             return
         }
         state = .installing(release, step: "Downloading…")
         do {
+            let signed = try await signatureData(from: signature)
             let (download, response) = try await session.download(from: archive)
             let file = FileManager.default.temporaryDirectory
                 .appendingPathComponent("DockFolder-\(release.version)-\(UUID().uuidString).zip")
@@ -331,12 +385,12 @@ final class Updater: ObservableObject {
             }
 
             state = .installing(release, step: "Installing…")
-            let app = app
+            let (app, key) = (app, source.signingKey)
             try await Task.detached(priority: .userInitiated) {
-                try UpdateInstaller().install(archive: file, sha256: release.sha256, version: release.version, over: app)
+                try UpdateInstaller().install(archive: file, signature: signed, signedBy: key, version: release.version, over: app)
             }.value
         } catch {
-            Self.log.error("installing \(release.version, privacy: .public) failed: \(error.localizedDescription, privacy: .public)")
+            Self.log.error("installing \(release.version, privacy: .public) failed: \(error.localizedDescription)")
             state = .failed(release, error.localizedDescription)
             return
         }
@@ -344,6 +398,15 @@ final class Updater: ObservableObject {
         Self.log.notice("installed DockFolder \(release.version, privacy: .public); starting it")
         defaults.set(true, forKey: Self.updateFoldersKey)
         if !relaunch(app) { state = .needsRestart(release.version) }
+    }
+
+    /// A release's signature: base64 text, as sign-update writes it.
+    private func signatureData(from url: URL) async throws -> Data {
+        let (data, response) = try await session.data(from: url)
+        if let http = response as? HTTPURLResponse, http.statusCode != 200 { throw URLError(.badServerResponse) }
+        let text = String(decoding: data.prefix(1024), as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let signature = Data(base64Encoded: text) else { throw UpdateInstaller.Failure.notSigned }
+        return signature
     }
 
     /// After DockFolder updated itself and started again: brings every folder up to this version.
@@ -356,6 +419,12 @@ final class Updater: ObservableObject {
         state = failed.isEmpty
             ? .updated(version)
             : .failed(nil, "DockFolder \(version) is installed, but \(failed.joined(separator: ", ")) couldn’t be updated. Select it and click Update to try again.")
+    }
+
+    /// Opens the release's page, if it's one of DockFolder's.
+    func openPage(of release: Release) {
+        guard source.allowsPage(release.page) else { return }
+        NSWorkspace.shared.open(release.page)
     }
 
     /// Closes the card about an update, until the next check finds something.
@@ -373,7 +442,7 @@ final class Updater: ObservableObject {
         do {
             try process.run()
         } catch {
-            log.error("couldn't start the new DockFolder: \(error.localizedDescription, privacy: .public)")
+            log.error("couldn't start the new DockFolder: \(error.localizedDescription)")
             return false
         }
         NSApp.terminate(nil)

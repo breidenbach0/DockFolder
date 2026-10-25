@@ -10,9 +10,10 @@ enum AppRole {
     static let infoKey = "DockFolderRole"
 
     static var current: AppRole {
-        // `-DockFolderRole manager` on the command line also works, for running from Xcode.
-        let role = UserDefaults.standard.string(forKey: infoKey)
-            ?? Bundle.main.object(forInfoDictionaryKey: infoKey) as? String
+        // `-DockFolderRole manager` on the command line also works, for running from Xcode. Only
+        // there: a stray `defaults write -g` mustn't turn every folder into the DockFolder window.
+        let argument = UserDefaults.standard.volatileDomain(forName: UserDefaults.argumentDomain)[infoKey] as? String
+        let role = argument ?? Bundle.main.object(forInfoDictionaryKey: infoKey) as? String
         return role == "manager" ? .manager : .folder
     }
 }
@@ -61,11 +62,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var panel: PanelController!
     private var cancellables = Set<AnyCancellable>()
     private var appearanceObservation: NSKeyValueObservation?
-    private var lastPersistedIcon: PersistedIcon?
-    private var pendingBundleIcon: NSImage?
+    /// What the live Dock icon shows, so it's only redrawn when that changes.
+    private var shownIcon: ShownIcon?
 
-    /// What the icon written into the bundle shows, so it's only rewritten when that changes.
-    private struct PersistedIcon: Equatable {
+    private struct ShownIcon: Equatable {
         var items: [UUID]
         var tint: FolderTint
         var dark: Bool
@@ -77,6 +77,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         store = FolderStore()
         panel = PanelController(store: store)
         panel.onAddApps = { [weak self] in self?.addApps() }
+        panel.onClose = { [weak self] in self?.scheduleBundleIcon() }
         NSApp.mainMenu = makeMainMenu()
     }
 
@@ -103,9 +104,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return false
     }
 
-    /// Apps dragged onto our Dock icon (Info.plist declares that we accept app bundles).
+    /// Apps dragged onto our Dock icon (Info.plist declares that we accept app bundles). Anything
+    /// else sent our way, by `open -a` say, is ignored.
     func application(_ application: NSApplication, open urls: [URL]) {
-        if store.add(urls) > 0 { NSSound.beep() }   // the folder is full
+        let apps = urls.filter { $0.pathExtension == "app" }
+        guard !apps.isEmpty else { return }
+        if store.add(apps) > 0 { NSSound.beep() }   // the folder is full
         panel.show()
     }
 
@@ -119,9 +123,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool { true }
 
-    /// So the Dock doesn't go on showing an old icon once we've quit.
+    /// So the Dock doesn't go on showing an old icon, or the wrong light or dark, once we've quit.
     func applicationWillTerminate(_ notification: Notification) {
-        writePendingBundleIcon()
+        guard Self.persistIconToBundle, Bundle.main.bundleURL.pathExtension == "app" else { return }
+        BundleIcon.write(for: store, dark: NSApp.effectiveAppearance.isDark, to: Bundle.main.bundleURL)
     }
 
     // MARK: - Actions
@@ -146,41 +151,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - Dock icon
 
-    private func refreshDockIcon(items: [FolderItem]? = nil, tint: FolderTint? = nil) {
+    /// Redraws the live Dock icon when the first nine apps, the colour, or light and dark change.
+    /// @Published sends new values just before the store has them; `items` and `tint` are those.
+    private func refreshDockIcon(items: [FolderItem]? = nil, tint: FolderTint? = nil, waitForPanel: Bool = true) {
         let items = items ?? store.items
         let tint = tint ?? store.tint
         let dark = NSApp.effectiveAppearance.isDark
-        let image = FolderIcon.make(from: items.prefix(9).map(store.icon(for:)), tint: tint, dark: dark)
-        NSApp.applicationIconImage = image   // live icon while we're running
+        let shown = ShownIcon(items: items.prefix(9).map(\.id), tint: tint, dark: dark)
+        guard shown != shownIcon else { return }
+        // A change made in the open folder, such as an app put down, shows once it has settled.
+        if waitForPanel, panel.isOpen {
+            NSObject.cancelPreviousPerformRequests(withTarget: self, selector: #selector(redrawDockIcon), object: nil)
+            perform(#selector(redrawDockIcon), with: nil, afterDelay: 0.4)
+            return
+        }
+        shownIcon = shown
+        NSApp.applicationIconImage = FolderIcon.bitmap(from: items.prefix(9).map(store.icon(for:)), tint: tint, dark: dark)
+        scheduleBundleIcon()
+    }
 
-        let shown = PersistedIcon(items: items.prefix(9).map(\.id), tint: tint, dark: dark)
-        guard Self.persistIconToBundle,
-              shown != lastPersistedIcon,
-              Bundle.main.bundleURL.pathExtension == "app" else { return }
-        lastPersistedIcon = shown
-        // Writing the icon into the bundle is slow, so wait until the changes stop
-        // (dragging through the colour wheel sends many).
-        pendingBundleIcon = image
+    @objc private func redrawDockIcon() {
+        refreshDockIcon(waitForPanel: false)
+    }
+
+    /// The icon in our bundle is written once the changes stop (dragging through the colour wheel
+    /// sends many) and the folder is closed, as writing it holds things up for a moment.
+    private func scheduleBundleIcon() {
         NSObject.cancelPreviousPerformRequests(withTarget: self, selector: #selector(writeBundleIcon), object: nil)
         perform(#selector(writeBundleIcon), with: nil, afterDelay: 0.5)
     }
 
-    /// Custom Finder icon on our own bundle, so the Dock shows it while we're not running.
-    /// Writing it holds things up for a moment, so it waits while the folder is open.
+    /// Light or dark alone waits until we quit: while we run, the Dock shows the live icon.
     @objc private func writeBundleIcon() {
-        guard pendingBundleIcon != nil else { return }
-        if panel.isOpen {
-            perform(#selector(writeBundleIcon), with: nil, afterDelay: 1)
-        } else {
-            writePendingBundleIcon()
-        }
-    }
-
-    private func writePendingBundleIcon() {
-        guard let image = pendingBundleIcon else { return }
-        pendingBundleIcon = nil
-        _ = NSWorkspace.shared.setIcon(image, forFile: Bundle.main.bundlePath, options: [])
-        NSWorkspace.shared.noteFileSystemChanged(Bundle.main.bundlePath)
+        guard Self.persistIconToBundle, Bundle.main.bundleURL.pathExtension == "app", !panel.isOpen else { return }
+        BundleIcon.write(for: store, dark: NSApp.effectiveAppearance.isDark, to: Bundle.main.bundleURL,
+                         evenForAppearance: false)
     }
 
     // MARK: - Menus

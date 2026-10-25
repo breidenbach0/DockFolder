@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import OSLog
 
 struct FolderItem: Codable, Identifiable, Equatable {
     var id: UUID
@@ -20,6 +21,7 @@ final class FolderStore: ObservableObject {
     /// Posted through DistributedNotificationCenter after a folder's file is saved.
     /// The object is the folder's bundle ID.
     static let didChangeNotification = Notification.Name("dev.local.dockfolder.folderDidChange")
+    nonisolated static let log = Logger(subsystem: "dev.local.dockfolder", category: "folders")
 
     @Published private(set) var items: [FolderItem] = []
     @Published private(set) var tint: FolderTint = .clear
@@ -47,7 +49,7 @@ final class FolderStore: ObservableObject {
         self.bundleID = bundleID
         let base = directory ?? Self.defaultDirectory
         try? FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
-        dataURL = base.appendingPathComponent("\(bundleID).json")
+        dataURL = base.appendingPathComponent("\(Self.fileName(for: bundleID)).json")
 
         load()
 
@@ -61,6 +63,11 @@ final class FolderStore: ObservableObject {
     static var defaultDirectory: URL {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("DockFolder", isDirectory: true)
+    }
+
+    /// The bundle ID as a file name: anything that could reach outside the folder becomes "-".
+    static func fileName(for bundleID: String) -> String {
+        String(bundleID.map { $0.isASCII && ($0.isLetter || $0.isNumber || "._-".contains($0)) ? $0 : "-" })
     }
 
     /// The most apps this folder holds, for its layout.
@@ -144,9 +151,10 @@ final class FolderStore: ObservableObject {
     private static func appending(_ urls: [URL], to existing: [FolderItem]) -> [FolderItem] {
         let ownBundle = Bundle.main.bundleURL.standardizedFileURL
         var updated = existing
-        for url in urls where url.isFileURL && url.standardizedFileURL != ownBundle {
+        // Apps only: a folder never holds documents or scripts, which open in whatever handles them.
+        for url in urls where url.isFileURL && url.pathExtension == "app" && url.standardizedFileURL != ownBundle {
             let path = url.standardizedFileURL.path
-            let bundleID = url.pathExtension == "app" ? Bundle(url: url)?.bundleIdentifier : nil
+            let bundleID = Bundle(url: url)?.bundleIdentifier
             let duplicate = updated.contains { item in
                 item.path == path || (bundleID != nil && item.bundleID == bundleID)
             }
@@ -170,7 +178,12 @@ final class FolderStore: ObservableObject {
     }
 
     func displayName(for item: FolderItem) -> String {
-        let path = (url(for: item)?.path ?? item.path) as NSString
+        displayName(for: item, at: url(for: item))
+    }
+
+    /// The name, for an item already looked up at `url`.
+    func displayName(for item: FolderItem, at url: URL?) -> String {
+        let path = (url?.path ?? item.path) as NSString
         if let cached = nameCache.object(forKey: path) { return cached as String }
         let name = FileManager.default.displayName(atPath: path as String)
         nameCache.setObject(name as NSString, forKey: path)
@@ -178,11 +191,19 @@ final class FolderStore: ObservableObject {
     }
 
     func icon(for item: FolderItem) -> NSImage {
-        guard let url = url(for: item) else {
+        icon(for: item, at: url(for: item))
+    }
+
+    /// The icon, for an item already looked up at `url`. Kept until the app changes: its
+    /// Info.plist changes with every update.
+    func icon(for item: FolderItem, at url: URL?) -> NSImage {
+        guard let url else {
             // Not cached, so the real icon comes back once the app reappears.
             return NSImage(systemSymbolName: "questionmark.app.dashed", accessibilityDescription: nil) ?? NSImage()
         }
-        let key = url.path as NSString
+        let info = url.appendingPathComponent("Contents/Info.plist")
+        let changed = (try? info.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
+        let key = "\(url.path)|\(changed?.timeIntervalSinceReferenceDate ?? 0)" as NSString
         if let cached = iconCache.object(forKey: key) { return cached }
         let icon = NSWorkspace.shared.icon(forFile: url.path)
         iconCache.setObject(icon, forKey: key)
@@ -199,15 +220,11 @@ final class FolderStore: ObservableObject {
     /// Returns false if the item can't be found.
     @discardableResult
     func open(_ item: FolderItem) -> Bool {
-        guard let url = url(for: item) else { return false }
-        if url.pathExtension == "app" {
-            NSWorkspace.shared.openApplication(at: url, configuration: NSWorkspace.OpenConfiguration()) { _, error in
-                if let error {
-                    NSLog("DockFolder: couldn't open %@: %@", url.path, error.localizedDescription)
-                }
+        guard let url = url(for: item), url.pathExtension == "app" else { return false }
+        NSWorkspace.shared.openApplication(at: url, configuration: NSWorkspace.OpenConfiguration()) { _, error in
+            if let error {
+                Self.log.error("couldn't open \(url.path): \(error.localizedDescription)")
             }
-        } else {
-            NSWorkspace.shared.open(url)
         }
         return true
     }
@@ -248,8 +265,7 @@ final class FolderStore: ObservableObject {
                 .appendingPathComponent(dataURL.lastPathComponent + ".unreadable-\(Int(Date().timeIntervalSince1970))")
             try? FileManager.default.moveItem(at: dataURL, to: backup)
             knownFileDate = nil
-            NSLog("DockFolder: couldn't read %@ (%@); moved it to %@",
-                  dataURL.path, error.localizedDescription, backup.lastPathComponent)
+            Self.log.error("couldn't read \(self.dataURL.path) (\(error.localizedDescription)); moved it to \(backup.lastPathComponent)")
         }
     }
 
@@ -269,7 +285,7 @@ final class FolderStore: ObservableObject {
             try encoder.encode(file).write(to: dataURL, options: .atomic)
             knownFileDate = fileDate()
         } catch {
-            NSLog("DockFolder: couldn't save %@: %@", dataURL.path, error.localizedDescription)
+            Self.log.error("couldn't save \(self.dataURL.path): \(error.localizedDescription)")
             return
         }
         DistributedNotificationCenter.default().postNotificationName(

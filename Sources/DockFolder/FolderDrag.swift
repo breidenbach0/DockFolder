@@ -56,7 +56,7 @@ struct FolderDropDelegate: DropDelegate {
             provider.loadDataRepresentation(forTypeIdentifier: FolderDrag.dockAppType.identifier) { data, _ in
                 guard let data, let path = String(data: data, encoding: .utf8) else { return }
                 DispatchQueue.main.async {
-                    FolderDrag.log.notice("app from the window's Dock: \(path, privacy: .public)")
+                    FolderDrag.log.notice("app from the window's Dock: \(path)")
                     if !onDockApp(URL(fileURLWithPath: path)) { NSSound.beep() }   // the folder is full
                 }
             }
@@ -69,7 +69,7 @@ struct FolderDropDelegate: DropDelegate {
             _ = provider.loadObject(ofClass: URL.self) { url, _ in
                 guard let url, url.pathExtension == "app" else { return }
                 DispatchQueue.main.async {
-                    FolderDrag.log.notice("adding dropped app \(url.path, privacy: .public)")
+                    FolderDrag.log.notice("adding dropped app \(url.path)")
                     if store.add([url]) > 0 { NSSound.beep() }   // the folder is full
                 }
             }
@@ -170,7 +170,7 @@ final class DockDragWatcher: NSObject {
         guard let pending = pendingDrop else { return }
         if let app = Self.removedApp(before: pending.dockApps, after: DockPreferences.appURLs()) {
             pendingDrop = nil
-            FolderDrag.log.notice("the Dock removed \(app.path, privacy: .public)")
+            FolderDrag.log.notice("the Dock removed \(app.path)")
             onDrop(app)
         } else if Date() < pending.giveUpAt {
             perform(#selector(lookForRemovedApp), with: nil, afterDelay: 0.1, inModes: [.common])

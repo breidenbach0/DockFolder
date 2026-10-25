@@ -359,12 +359,13 @@ struct FolderCell: View {
     @State private var isHovered = false
 
     var body: some View {
-        let missing = store.url(for: item) == nil
-        let name = store.displayName(for: item)
+        let url = store.url(for: item)
+        let missing = url == nil
+        let name = store.displayName(for: item, at: url)
         let highlight = RoundedRectangle(cornerRadius: 16, style: .continuous)
         let hovered = isHovered && !isRearranging
 
-        AppTile(icon: store.icon(for: item), name: name, iconScale: hovered ? 1.06 : 1)
+        AppTile(icon: store.icon(for: item, at: url), name: name, iconScale: hovered ? 1.06 : 1)
             .background(highlight.fill(Color.primary.opacity(hovered ? 0.08 : 0)))
             .contentShape(highlight)
             .opacity(isGap ? 0 : missing ? 0.4 : 1)

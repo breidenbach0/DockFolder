@@ -22,11 +22,7 @@ DockFolder turns a group of apps into a single Dock icon. Click it and the apps 
 
 1. **Download** [DockFolder.dmg](https://github.com/breidenbach0/DockFolder/releases/latest/download/DockFolder.dmg) from the [latest release](https://github.com/breidenbach0/DockFolder/releases/latest).
 2. **Open the disk image** and drag **DockFolder** onto the **Applications** folder next to it.
-3. **Open DockFolder.** It isn't notarized by Apple, so macOS asks first. If it says it couldn't verify DockFolder, click **Done**, open **System Settings › Privacy & Security**, scroll down and click **Open Anyway**. You only do this once. Or run this in Terminal:
-
-   ```bash
-   xattr -dr com.apple.quarantine /Applications/DockFolder.app
-   ```
+3. **Open DockFolder.** It isn't notarized by Apple, so macOS asks first. If it says it couldn't verify DockFolder, click **Done**, open **System Settings › Privacy & Security**, scroll down and click **Open Anyway**. You only do this once, and macOS still checks DockFolder for malware on the way.
 
 4. **Make your first folder** with the **+** button.
 
@@ -60,7 +56,7 @@ A full folder turns away more apps. You can only switch to a layout that has roo
   <img src="docs/images/window-dark.png" width="700" alt="The DockFolder window, with folders in the sidebar and the selected folder previewed as a purple glass panel over a desktop picture.">
 </picture>
 
-**Update.** DockFolder looks for a new version on GitHub when you open it, and once a day while it's open. When there is one, a card at the bottom of the sidebar offers **Install Update**: DockFolder downloads it, checks it against the release, puts it in place of itself, starts again and updates your folders, which keep their apps, colours and places in the Dock. **DockFolder › Check for Updates…** looks right away; turn off **Check for Updates Automatically** in the same menu to stop the daily look. (Installing needs DockFolder in a folder you can write to, such as Applications.)
+**Update.** DockFolder looks for a new version on GitHub when you open it, and once a day while it's open. When there is one, a card at the bottom of the sidebar offers **Install Update**: DockFolder downloads it, checks that it's signed with DockFolder's release key, puts it in place of itself, starts again and updates your folders, which keep their apps, colours and places in the Dock. **DockFolder › Check for Updates…** looks right away; turn off **Check for Updates Automatically** in the same menu to stop the daily look. (Installing needs DockFolder in a folder you can write to, such as Applications.)
 
 **Uninstall.** Delete your folders in the DockFolder window, then drag DockFolder from Applications to the Trash. Folder settings live in `~/Library/Application Support/DockFolder`.
 
@@ -75,7 +71,8 @@ scripts/build-app.sh          # builds build/DockFolder.app (Apple silicon and I
 open build/DockFolder.app     # the DockFolder window
 ```
 
-- `scripts/make-dmg.sh` builds `build/DockFolder.dmg`, the download, and `build/DockFolder.zip`, which the in-app updater installs. Attach both to a release, and bump the version in `scripts/build-app.sh` first: the updater only installs a release whose app has the version its tag says.
+- `scripts/make-dmg.sh` builds `build/DockFolder.dmg`, the download, and `build/DockFolder.zip`, which the in-app updater installs, and signs the zip into `build/DockFolder.zip.sig`. Attach all three to a release, and bump the version in `scripts/build-app.sh` first: the updater only installs a release whose app has the version its tag says.
+- Updates are signed with an Ed25519 key kept in the maintainer's login Keychain; macOS asks before each use. `scripts/sign-update.swift --create-key` made it once and printed its public half, which is `UpdateSource.releaseKey` in `Updater.swift`. The updater refuses any update not signed with it, so someone who only gets into the GitHub account can't push one. `UNSIGNED=1 scripts/make-dmg.sh` builds without signing, for builds that won't be released.
 - `scripts/make-folder.sh "Design" --pin` makes a folder without the window.
 - `swift test` runs the tests: grid placement, layout sizes and limits, page swipes, rearranging, saving, colours, edits from two processes, bundle IDs and names, building, rebuilding and renaming signed folders, Dock tiles, the app icon, and updating DockFolder from a stand-in release.
 - `open Package.swift` edits it in Xcode. Running from Xcode starts a bare binary that runs as a folder; pass `-DockFolderRole manager` to get the DockFolder window (making folders needs the app bundle). To test real Dock behaviour, build the app and make a folder.
@@ -101,7 +98,7 @@ Folders are copied from the DockFolder app you run, so after rebuilding, click *
 | `Rearranging.swift` | Moving apps within a folder: the app follows the pointer, and holding it at a side (or pressing ← →) turns the page |
 | `FolderDrag.swift` | Apps dropped on a folder from the Finder, and apps dragged out of the Dock onto it |
 | `FolderStyle.swift` | The two layouts, pages and grid, and how many apps each holds |
-| `FolderIcon.swift` | Draws the glass folder icon from the first nine app icons, and DockFolder's own icon |
+| `FolderIcon.swift` | Draws the glass folder icon from the first nine app icons, and DockFolder's own icon; writes a folder's icon into its bundle only when it would look different |
 | `FolderTint.swift` | The colours a folder's glass can be tinted, ready-made or any colour (saved as #RRGGBB) |
 | `Glass.swift` | Liquid Glass helpers, with blur fallbacks for macOS 13–15 |
 | `Manager/ManagerApp.swift` | The DockFolder window app |

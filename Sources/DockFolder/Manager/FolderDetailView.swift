@@ -200,12 +200,12 @@ struct FolderStage: View {
                 ScrollView(.horizontal) {
                     HStack(spacing: 8) {
                         ForEach(apps, id: \.self) { app in
-                            Image(nsImage: NSWorkspace.shared.icon(forFile: app.path))
+                            Image(nsImage: library.icon(forDockApp: app))
                                 .resizable()
                                 .interpolation(.high)
                                 .frame(width: 44, height: 44)
                                 .opacity(draggedDockApp == app ? 0.3 : 1)
-                                .help("\(FileManager.default.displayName(atPath: app.path)): drag it into the folder to move it out of the Dock")
+                                .help("\(library.name(forDockApp: app)): drag it into the folder to move it out of the Dock")
                                 .onDrag {
                                     draggedDockApp = app
                                     dragEnd.watch { draggedDockApp = nil }
@@ -220,8 +220,7 @@ struct FolderStage: View {
                 Divider()
                     .frame(height: 40)
             }
-            Image(nsImage: FolderIcon.make(from: store.previewIcons(), tint: store.tint,
-                                           dark: colorScheme == .dark, size: 128))
+            Image(nsImage: folder.icon(size: 128, dark: colorScheme == .dark))
                 .resizable()
                 .frame(width: 58, height: 58)
                 .help("The folder’s Dock icon")
@@ -233,11 +232,13 @@ struct FolderStage: View {
     }
 }
 
-/// The desktop picture, so the glass looks as it will over the desktop. A soft gradient when
-/// the picture can't be read, such as a moving wallpaper.
+/// The desktop picture, so the glass looks as it will over the desktop. A soft gradient while
+/// it's read, and when it can't be.
 struct DesktopBackdrop: View {
+    @ObservedObject private var picture = DesktopPicture.shared
+
     var body: some View {
-        if let image = DesktopPicture.image {
+        if let image = picture.image {
             Image(nsImage: image)
                 .resizable()
                 .aspectRatio(contentMode: .fill)
@@ -250,23 +251,36 @@ struct DesktopBackdrop: View {
     }
 }
 
+/// The desktop picture, read once, in the background: a big picture takes a moment to decode.
 @MainActor
-enum DesktopPicture {
-    /// Read once, at a size that's plenty for a preview.
-    static let image: NSImage? = {
+final class DesktopPicture: ObservableObject {
+    static let shared = DesktopPicture()
+    @Published private(set) var image: NSImage?
+
+    private init() {
         guard let screen = NSScreen.main,
               let url = NSWorkspace.shared.desktopImageURL(for: screen),
               // Pictures in the home folder (Pictures, Desktop…) would trigger a privacy prompt.
-              !url.path.hasPrefix(FileManager.default.homeDirectoryForCurrentUser.path),
-              let source = CGImageSourceCreateWithURL(url as CFURL, nil),
-              let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [
-                  kCGImageSourceCreateThumbnailFromImageAlways: true,
-                  kCGImageSourceCreateThumbnailWithTransform: true,
-                  kCGImageSourceThumbnailMaxPixelSize: 1800,
-              ] as CFDictionary)
-        else { return nil }
-        return NSImage(cgImage: image, size: .zero)
-    }()
+              !url.path.hasPrefix(FileManager.default.homeDirectoryForCurrentUser.path) else { return }
+        Task.detached(priority: .utility) {
+            guard let picture = Self.thumbnail(of: url) else { return }
+            await DesktopPicture.shared.show(picture)
+        }
+    }
+
+    private func show(_ picture: CGImage) {
+        image = NSImage(cgImage: picture, size: .zero)
+    }
+
+    /// At a size that's plenty for a preview.
+    private nonisolated static func thumbnail(of url: URL) -> CGImage? {
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
+        return CGImageSourceCreateThumbnailAtIndex(source, 0, [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: 1800,
+        ] as CFDictionary)
+    }
 }
 
 /// A titled group of rows on a rounded card, in the style of System Settings.

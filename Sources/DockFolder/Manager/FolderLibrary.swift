@@ -35,12 +35,24 @@ final class ManagedFolder: ObservableObject, Identifiable {
             }
     }
 
-    /// Draws the folder's icon into its bundle, which is what the Dock shows while it isn't running.
+    /// The folder's icon at `size`, drawn again only when its first nine apps or colour change,
+    /// so the window doesn't redraw it every time something else changes.
+    func icon(size: CGFloat, dark: Bool) -> NSImage {
+        let key = "\(size)|\(dark)|" + store.items.prefix(9).map(\.id.uuidString).joined(separator: ",")
+            + "|" + store.tint.savedName
+        if let cached = icons[key] { return cached }
+        if icons.count > 8 { icons.removeAll() }
+        let image = FolderIcon.make(from: store.previewIcons(), tint: store.tint, dark: dark, size: size)
+        icons[key] = image
+        return image
+    }
+
+    private var icons: [String: NSImage] = [:]
+
+    /// Draws the folder's icon into its bundle, which is what the Dock shows while it isn't
+    /// running, unless the icon there already shows the same.
     func writeIcon() {
-        let image = FolderIcon.make(from: store.previewIcons(), tint: store.tint,
-                                    dark: NSApp.effectiveAppearance.isDark)
-        _ = NSWorkspace.shared.setIcon(image, forFile: url.path, options: [])
-        NSWorkspace.shared.noteFileSystemChanged(url.path)
+        BundleIcon.write(for: store, dark: NSApp.effectiveAppearance.isDark, to: url)
     }
 
     fileprivate func checkRunning() -> Bool {
@@ -70,6 +82,8 @@ final class FolderLibrary: ObservableObject {
     /// window, to be dragged into it.
     @Published private(set) var dockApps: [URL] = []
     private var dockRestart: Task<Void, Never>?
+    private let dockIcons = NSCache<NSString, NSImage>()
+    private let dockNames = NSCache<NSString, NSString>()
 
     let factory: FolderFactory
     private let dataDirectory: URL?
@@ -86,8 +100,11 @@ final class FolderLibrary: ObservableObject {
 
         let center = NSWorkspace.shared.notificationCenter
         for name in [NSWorkspace.didLaunchApplicationNotification, NSWorkspace.didTerminateApplicationNotification] {
-            let token = center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.refreshStatus() }
+            // Only folders starting or quitting change anything shown.
+            let token = center.addObserver(forName: name, object: nil, queue: .main) { [weak self] note in
+                let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
+                guard app?.bundleIdentifier?.hasPrefix(FolderFactory.bundleIDPrefix) == true else { return }
+                MainActor.assumeIsolated { self?.refreshRunning() }
             }
             observers.append(ObserverToken(center: center, token: token))
         }
@@ -123,7 +140,9 @@ final class FolderLibrary: ObservableObject {
             guard let info = NSDictionary(contentsOf: url.appendingPathComponent("Contents/Info.plist")) as? [String: Any],
                   info["CFBundleExecutable"] as? String == "DockFolder",
                   info[AppRole.infoKey] as? String != "manager",
-                  let bundleID = info["CFBundleIdentifier"] as? String else { continue }
+                  let bundleID = info["CFBundleIdentifier"] as? String,
+                  // Its saved apps' file is named after it, so only IDs DockFolder makes.
+                  FolderFactory.isFolderBundleID(bundleID) else { continue }
             let name = info["CFBundleDisplayName"] as? String
                 ?? info["CFBundleName"] as? String
                 ?? url.deletingPathExtension().lastPathComponent
@@ -165,6 +184,30 @@ final class FolderLibrary: ObservableObject {
     private static func preference(of url: URL, dock: Set<String>) -> (Int, Date) {
         let modified = (try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
         return (dock.contains(url.standardizedFileURL.path) ? 1 : 0, modified)
+    }
+
+    /// Whether each folder is running.
+    func refreshRunning() {
+        for folder in folders {
+            let running = folder.checkRunning()
+            if folder.isRunning != running { folder.isRunning = running }
+        }
+    }
+
+    /// An app in the Dock strip's icon, looked up once.
+    func icon(forDockApp app: URL) -> NSImage {
+        if let cached = dockIcons.object(forKey: app.path as NSString) { return cached }
+        let icon = NSWorkspace.shared.icon(forFile: app.path)
+        dockIcons.setObject(icon, forKey: app.path as NSString)
+        return icon
+    }
+
+    /// An app in the Dock strip's name, looked up once.
+    func name(forDockApp app: URL) -> String {
+        if let cached = dockNames.object(forKey: app.path as NSString) { return cached as String }
+        let name = FileManager.default.displayName(atPath: app.path)
+        dockNames.setObject(name as NSString, forKey: app.path as NSString)
+        return name
     }
 
     /// Whether each folder is running, kept in the Dock, and made by this build; and what's in the Dock.
@@ -213,7 +256,10 @@ final class FolderLibrary: ObservableObject {
     /// leaves the Dock alone, if the folder is full.
     @discardableResult
     func moveFromDock(_ app: URL, into folder: ManagedFolder) -> Bool {
-        guard folder.store.add([app]) == 0 else { return false }
+        // Only an app that's in the Dock: the drag could carry any path.
+        let path = app.standardizedFileURL.path
+        guard dockApps.contains(where: { $0.standardizedFileURL.path == path }),
+              folder.store.add([app]) == 0 else { return false }
         DockPreferences.remove(app)
         refreshStatus()
         dockRestart?.cancel()
@@ -233,7 +279,7 @@ final class FolderLibrary: ObservableObject {
         let path = folder.url.path
         NSWorkspace.shared.openApplication(at: folder.url, configuration: configuration) { _, error in
             if let error {
-                NSLog("DockFolder: couldn't start %@: %@", path, error.localizedDescription)
+                FolderStore.log.error("couldn't start \(path): \(error.localizedDescription)")
             }
         }
     }
@@ -270,7 +316,7 @@ final class FolderLibrary: ObservableObject {
             do {
                 try await update(folder)
             } catch {
-                Updater.log.error("couldn't update \(folder.name, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                Updater.log.error("couldn't update \(folder.name): \(error.localizedDescription)")
                 failed.append(folder.name)
             }
         }

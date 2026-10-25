@@ -81,8 +81,7 @@ struct FolderRow: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            Image(nsImage: FolderIcon.make(from: store.previewIcons(), tint: store.tint,
-                                           dark: colorScheme == .dark, size: 96))
+            Image(nsImage: folder.icon(size: 96, dark: colorScheme == .dark))
                 .resizable()
                 .frame(width: 36, height: 36)
             VStack(alignment: .leading, spacing: 1) {

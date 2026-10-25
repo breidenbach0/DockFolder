@@ -29,7 +29,7 @@ final class Rearrangement: ObservableObject {
 
     func pickUp(_ item: FolderItem, from items: [FolderItem], at pointer: CGPoint, center: CGPoint) {
         settle()
-        FolderDrag.log.notice("moving \(item.path, privacy: .public)")
+        FolderDrag.log.debug("moving \(item.path)")
         self.item = item
         order = items
         self.pointer = pointer
@@ -62,7 +62,7 @@ final class Rearrangement: ObservableObject {
     /// page showing, is simply there.
     func putDown(settlingAt slot: CGPoint?) {
         guard let item = movingItem else { return }
-        FolderDrag.log.notice("put down \(item.path, privacy: .public) at \(self.order.firstIndex(of: item) ?? -1)")
+        FolderDrag.log.debug("put down \(item.path) at \(self.order.firstIndex(of: item) ?? -1)")
         turner.stop()
         withAnimation(.easeOut(duration: 0.2)) { turnSide = nil }
         guard let slot else { return settle() }

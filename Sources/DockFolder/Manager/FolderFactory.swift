@@ -10,6 +10,13 @@ struct FolderFactory {
     var foldersDirectory: URL
 
     static let bundleIDPrefix = "dev.local.dockfolder."
+
+    /// A bundle ID a folder made by DockFolder or make-folder.sh has: the prefix, then a slug.
+    static func isFolderBundleID(_ bundleID: String) -> Bool {
+        let slug = bundleID.dropFirst(bundleIDPrefix.count)
+        return bundleID.hasPrefix(bundleIDPrefix) && !slug.isEmpty
+            && slug.allSatisfy { ("a"..."z").contains($0) || ("0"..."9").contains($0) || $0 == "-" }
+    }
     /// Info.plist key set by build-app.sh. Copies keep it, which shows which build made them.
     static let buildKey = "DockFolderBuild"
 
@@ -101,7 +108,12 @@ struct FolderFactory {
             // Only the case changes, on a case-insensitive disk: move it aside first.
             let aside = url.deletingLastPathComponent().appendingPathComponent(".\(UUID().uuidString).app")
             try fileManager.moveItem(at: url, to: aside)
-            try fileManager.moveItem(at: aside, to: destination)
+            do {
+                try fileManager.moveItem(at: aside, to: destination)
+            } catch {
+                try? fileManager.moveItem(at: aside, to: url)   // back where it was, not left hidden
+                throw error
+            }
         } else {
             try fileManager.moveItem(at: url, to: destination)
         }

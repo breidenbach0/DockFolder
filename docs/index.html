@@ -174,11 +174,6 @@
           <li>
             <h3>Open it the first time</h3>
             <p>DockFolder isn't notarized by Apple, so macOS asks before it opens it. If you see a message that macOS couldn't verify DockFolder, click <b>Done</b>, open <b>System Settings › Privacy &amp; Security</b>, scroll down and click <b>Open Anyway</b>. You only do this once.</p>
-            <p class="muted">Prefer Terminal? This does the same:</p>
-            <div class="code">
-              <code id="unquarantine">xattr -dr com.apple.quarantine /Applications/DockFolder.app</code>
-              <button class="copy" type="button" data-copy="unquarantine">Copy</button>
-            </div>
           </li>
           <li>
             <h3>Make your first folder</h3>
@@ -223,7 +218,7 @@
         </details>
         <details class="glass">
           <summary>How do I update DockFolder?</summary>
-          <p>DockFolder looks for a new version when you open it, and once a day while it's open. When there is one, click <b>Install Update</b> at the bottom of its sidebar: it swaps itself for the new version, starts again and updates your folders, which keep their apps, colours and places in the Dock. If your DockFolder doesn't offer updates yet, download the new version, put it in Applications in place of the old one, and click <b>Update</b> on each folder.</p>
+          <p>DockFolder looks for a new version when you open it, and once a day while it's open. When there is one, click <b>Install Update</b> at the bottom of its sidebar: it checks the update is signed by DockFolder's developer, swaps itself for the new version, starts again and updates your folders, which keep their apps, colours and places in the Dock. If your DockFolder doesn't offer updates yet, download the new version, put it in Applications in place of the old one, and click <b>Update</b> on each folder.</p>
         </details>
         <details class="glass">
           <summary>How do I remove DockFolder?</summary>

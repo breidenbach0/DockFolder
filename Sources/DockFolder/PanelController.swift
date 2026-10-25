@@ -34,7 +34,7 @@ final class PanelPresentation: ObservableObject {
 }
 
 struct FolderPanelView: View {
-    @ObservedObject var store: FolderStore
+    let store: FolderStore
     @ObservedObject var presentation: PanelPresentation
     let drawsGlass: Bool
     /// Transparent room around the glass, for the glass's own shadow.
@@ -55,6 +55,8 @@ struct FolderPanelView: View {
 @MainActor
 final class PanelController: NSObject, NSWindowDelegate {
     var onAddApps: () -> Void = {}
+    /// After the panel has closed, for work best done while nobody's looking.
+    var onClose: () -> Void = {}
     private(set) var isOpen = false
     /// Where the panel opens from: the pointer position when the Dock icon was clicked.
     private(set) var anchor = NSPoint.zero
@@ -122,7 +124,8 @@ final class PanelController: NSObject, NSWindowDelegate {
         // Grow or shrink the open panel as apps are added or removed, or the layout changes.
         // (@Published sends new values before the store has them, so use the values sent.)
         itemsSubscription = Publishers.CombineLatest(store.$items, store.$style).dropFirst().sink { [weak self] items, style in
-            guard let self, self.isOpen else { return }
+            guard let self, self.isOpen,
+                  FolderLayout.panelSize(itemCount: items.count, style: style) != self.glassSize else { return }
             self.applyFrame(itemCount: items.count, style: style)
         }
     }
@@ -172,6 +175,7 @@ final class PanelController: NSObject, NSWindowDelegate {
         lastClose = Date()
         removeKeyMonitor()
         dockDrags.stop()
+        onClose()
         if hideApp || !animated {
             // Hiding the app takes the panel with it at once, so there's nothing to fade.
             panel.orderOut(nil)
@@ -191,7 +195,7 @@ final class PanelController: NSObject, NSWindowDelegate {
 
     // Clicking anywhere outside the panel makes it lose key status.
     func windowDidResignKey(_ notification: Notification) {
-        FolderDrag.log.notice("the folder lost focus; closing it")
+        FolderDrag.log.debug("the folder lost focus; closing it")
         close(hideApp: false)
     }
 
@@ -214,9 +218,17 @@ final class PanelController: NSObject, NSWindowDelegate {
             screenFrame: screen.frame,
             visibleFrame: screen.visibleFrame
         )
-        presentation.anchor = Self.growAnchor(edge: dock.edge, pointer: anchor, frame: glass)
-        panel.setFrame(glass.insetBy(dx: -Self.glassMargin, dy: -Self.glassMargin), display: true)
+        let growAnchor = Self.growAnchor(edge: dock.edge, pointer: anchor, frame: glass)
+        if presentation.anchor != growAnchor { presentation.anchor = growAnchor }
+        let frame = glass.insetBy(dx: -Self.glassMargin, dy: -Self.glassMargin)
+        guard frame != panel.frame else { return }
+        panel.setFrame(frame, display: true)
         if panel.hasShadow { panel.invalidateShadow() }
+    }
+
+    /// The size of the glass in the panel as it is now.
+    private var glassSize: CGSize {
+        panel.frame.insetBy(dx: Self.glassMargin, dy: Self.glassMargin).size
     }
 
     /// The point on the panel's Dock side that's closest to the pointer, in SwiftUI's

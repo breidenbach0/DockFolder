@@ -137,6 +137,23 @@ final class FolderStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testAFolderHoldsAppsOnly() {
+        let store = FolderStore(directory: makeDirectory())
+        XCTAssertEqual(store.add([URL(fileURLWithPath: "/tmp/script.command"), URL(fileURLWithPath: "/tmp/notes.txt")]), 0)
+        XCTAssertTrue(store.items.isEmpty)
+        store.add([calculator])
+        XCTAssertEqual(store.items.map(\.path), [calculator.path])
+    }
+
+    @MainActor
+    func testAStrangeBundleIDCantReachOutsideTheDataFolder() {
+        let directory = makeDirectory()
+        let store = FolderStore(name: "Odd", bundleID: "../../.config/tool/settings", directory: directory)
+        XCTAssertEqual(store.dataURL.deletingLastPathComponent().standardizedFileURL, directory.standardizedFileURL)
+        XCTAssertEqual(FolderStore.fileName(for: "dev.local.dockfolder.design"), "dev.local.dockfolder.design")
+    }
+
+    @MainActor
     func testAddingTheSameAppTwiceKeepsOneEntry() {
         let store = FolderStore(directory: makeDirectory())
         store.add([calculator])
@@ -300,6 +317,15 @@ final class FolderFactoryTests: XCTestCase {
         XCTAssertEqual(FolderFactory.bundleID(for: "My Apps 2", avoiding: []), "dev.local.dockfolder.my-apps-2")
         XCTAssertEqual(FolderFactory.bundleID(for: "Café & Co.", avoiding: []), "dev.local.dockfolder.cafe-co")
         XCTAssertEqual(FolderFactory.bundleID(for: "🎨", avoiding: []), "dev.local.dockfolder.folder")
+    }
+
+    func testOnlyBundleIDsDockFolderMakesAreTakenForFolders() {
+        XCTAssertTrue(FolderFactory.isFolderBundleID("dev.local.dockfolder.design"))
+        XCTAssertTrue(FolderFactory.isFolderBundleID("dev.local.dockfolder.my-apps-2"))
+        XCTAssertFalse(FolderFactory.isFolderBundleID("dev.local.dockfolder."))
+        XCTAssertFalse(FolderFactory.isFolderBundleID("dev.local.dockfolder.../../.config/tool/settings"))
+        XCTAssertFalse(FolderFactory.isFolderBundleID("dev.local.dockfolder.Design"))
+        XCTAssertFalse(FolderFactory.isFolderBundleID("com.example.app"))
     }
 
     func testBundleIDsDontCollide() {
@@ -627,6 +653,41 @@ final class DockPreferencesTests: XCTestCase {
 }
 
 final class FolderIconTests: XCTestCase {
+    @MainActor
+    func testTheBundleIconIsOnlyWrittenWhenItWouldLookDifferent() throws {
+        _ = NSApplication.shared
+        let root = makeTemporaryDirectory()
+        let template = try makeApp(at: root.appendingPathComponent("DockFolder.app"), version: "0.5.0")
+        let factory = FolderFactory(template: template, foldersDirectory: root.appendingPathComponent("Dock Folders"))
+        let plan = try factory.plan(name: "Work", existingBundleIDs: [])
+        try factory.build(plan)
+        let store = FolderStore(name: "Work", bundleID: plan.bundleID, directory: root)
+        store.add([URL(fileURLWithPath: "/System/Applications/Calculator.app")])
+        let icon = plan.url.appendingPathComponent("Icon\r")
+        func written() -> Date? { (try? FileManager.default.attributesOfItem(atPath: icon.path))?[.modificationDate] as? Date }
+
+        BundleIcon.write(for: store, dark: false, to: plan.url)
+        let first = try XCTUnwrap(written())
+        Thread.sleep(forTimeInterval: 0.05)
+        BundleIcon.write(for: store, dark: false, to: plan.url)
+        XCTAssertEqual(written(), first, "nothing changed")
+        BundleIcon.write(for: store, dark: true, to: plan.url, evenForAppearance: false)
+        XCTAssertEqual(written(), first, "only light or dark changed, while the folder runs")
+        BundleIcon.write(for: store, dark: true, to: plan.url)
+        XCTAssertNotEqual(written(), first, "when it quits, light or dark counts too")
+        let afterDark = try XCTUnwrap(written())
+        Thread.sleep(forTimeInterval: 0.05)
+        store.add([URL(fileURLWithPath: "/System/Applications/Chess.app")])
+        BundleIcon.write(for: store, dark: true, to: plan.url, evenForAppearance: false)
+        XCTAssertNotEqual(written(), afterDark, "another app in the first nine")
+    }
+
+    func testTheLiveDockIconIsOneSmallBitmap() {
+        let image = FolderIcon.bitmap(from: [], tint: .clear, dark: true)
+        XCTAssertEqual(image.representations.count, 1)
+        XCTAssertEqual(image.representations.first?.pixelsWide, 512)
+    }
+
     func testAppIconsetHasEverySizeIconutilNeeds() throws {
         let iconset = makeTemporaryDirectory().appendingPathComponent("AppIcon.iconset")
         try FolderIcon.writeAppIconset(to: iconset)

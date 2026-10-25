@@ -14,7 +14,7 @@ fi
 NAME="$1"
 PIN="${2:-}"
 
-if [[ ! "$NAME" =~ ^[[:alnum:][:space:]._-]+$ ]]; then
+if [[ ! "$NAME" =~ ^[[:alnum:]\ ._-]+$ ]]; then
     echo "Use letters, digits, spaces, dots, dashes or underscores in the folder name." >&2
     exit 64
 fi
@@ -24,10 +24,27 @@ if [[ -z "$SLUG" ]]; then
     exit 64
 fi
 
+DEST_DIR="$HOME/Applications/Dock Folders"
+
+# Like the DockFolder window: two folders never share a bundle ID, and with it their saved apps.
+BUNDLE_ID="dev.local.dockfolder.$SLUG"
+taken() {
+    local app
+    for app in "$DEST_DIR"/*.app; do
+        [[ -e "$app" ]] || continue
+        [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Contents/Info.plist" 2>/dev/null)" == "$1" ]] && return 0
+    done
+    return 1
+}
+N=2
+while taken "$BUNDLE_ID"; do
+    BUNDLE_ID="dev.local.dockfolder.$SLUG-$N"
+    N=$((N + 1))
+done
+
 TEMPLATE="build/DockFolder.app"
 [[ -d "$TEMPLATE" ]] || scripts/build-app.sh
 
-DEST_DIR="$HOME/Applications/Dock Folders"
 APP="$DEST_DIR/$NAME.app"
 if [[ -e "$APP" ]]; then
     echo "$APP already exists." >&2
@@ -43,7 +60,7 @@ rm -f "$APP/Icon"$'\r'
 xattr -d com.apple.FinderInfo "$APP" 2>/dev/null || true
 
 PLIST="$APP/Contents/Info.plist"
-plutil -replace CFBundleIdentifier -string "dev.local.dockfolder.$SLUG" "$PLIST"
+plutil -replace CFBundleIdentifier -string "$BUNDLE_ID" "$PLIST"
 plutil -replace CFBundleName -string "$NAME" "$PLIST"
 plutil -replace CFBundleDisplayName -string "$NAME" "$PLIST"
 plutil -remove DockFolderRole "$PLIST" 2>/dev/null || true   # a copy is a folder, not the DockFolder window

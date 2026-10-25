@@ -50,7 +50,7 @@ struct UpdateCard: View {
                 }
                 .controlSize(.small)
                 .glassButtonStyle(prominent: true)
-                Button("What’s New") { NSWorkspace.shared.open(release.page) }
+                Button("What’s New") { updater.openPage(of: release) }
                     .buttonStyle(.link)
                     .controlSize(.small)
             }
@@ -72,7 +72,7 @@ struct UpdateCard: View {
                     Button("Try Again") { Task { await updater.install(release) } }
                         .controlSize(.small)
                         .glassButtonStyle()
-                    Button("Download") { NSWorkspace.shared.open(release.page) }
+                    Button("Download") { updater.openPage(of: release) }
                         .buttonStyle(.link)
                         .controlSize(.small)
                 }

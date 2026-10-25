@@ -23,6 +23,22 @@ enum FolderIcon {
         }
     }
 
+    /// The folder icon drawn once into a bitmap `pixels` wide, for the live Dock icon. The image
+    /// `make` returns keeps a drawing for every size it's shown at, which adds up to megabytes.
+    static func bitmap(from icons: [NSImage], tint: FolderTint, dark: Bool, pixels: Int = 512) -> NSImage {
+        let drawing = make(from: icons, tint: tint, dark: dark)
+        guard let space = CGColorSpace(name: CGColorSpace.sRGB),
+              let context = CGContext(data: nil, width: pixels, height: pixels, bitsPerComponent: 8, bytesPerRow: 0,
+                                      space: space, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+        else { return drawing }
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: false)
+        drawing.draw(in: NSRect(x: 0, y: 0, width: pixels, height: pixels))
+        NSGraphicsContext.restoreGraphicsState()
+        guard let image = context.makeImage() else { return drawing }
+        return NSImage(cgImage: image, size: NSSize(width: pixels / 2, height: pixels / 2))
+    }
+
     /// DockFolder's own icon: a glass folder holding nine colourful apps.
     static func makeAppIcon(size: CGFloat = 512) -> NSImage {
         NSImage(size: NSSize(width: size, height: size), flipped: false) { rect in
@@ -240,4 +256,40 @@ private extension NSColor {
 extension NSAppearance {
     /// Folder glass is drawn lighter or darker to match the Dock.
     var isDark: Bool { bestMatch(from: [.darkAqua, .aqua]) == .darkAqua }
+}
+
+/// The icon a folder app carries in its bundle, which the Dock shows while it isn't running.
+/// Drawing and writing it takes a moment, so it's only written when what it shows has changed:
+/// a note on the bundle says which apps, colour and light or dark the icon there shows.
+@MainActor
+enum BundleIcon {
+    private static let noteName = "dev.local.dockfolder.icon"
+
+    /// Writes the icon for the store's first nine apps and colour into `bundle`, unless the one
+    /// there already shows them. With `evenForAppearance` false, an icon that differs only in
+    /// light or dark is left as it is.
+    static func write(for store: FolderStore, dark: Bool, to bundle: URL, evenForAppearance: Bool = true) {
+        let content = store.items.prefix(9).map(\.id.uuidString).joined(separator: ",") + "|" + store.tint.savedName
+        let note = content + "|" + (dark ? "dark" : "light")
+        let current = currentNote(of: bundle)
+        guard current != note else { return }
+        if !evenForAppearance, let current, current.hasPrefix(content + "|") { return }
+        // A fresh drawing each time, let go of once it's written.
+        let image = FolderIcon.make(from: store.previewIcons(), tint: store.tint, dark: dark)
+        guard NSWorkspace.shared.setIcon(image, forFile: bundle.path, options: []) else { return }
+        _ = Array(note.utf8).withUnsafeBufferPointer { bytes in
+            setxattr(bundle.path, noteName, bytes.baseAddress, bytes.count, 0, 0)
+        }
+        NSWorkspace.shared.noteFileSystemChanged(bundle.path)
+    }
+
+    /// What the icon in `bundle` shows, if it has one written this way.
+    private static func currentNote(of bundle: URL) -> String? {
+        guard FileManager.default.fileExists(atPath: bundle.appendingPathComponent("Icon\r").path) else { return nil }
+        let size = getxattr(bundle.path, noteName, nil, 0, 0, 0)
+        guard size > 0 else { return nil }
+        var bytes = [UInt8](repeating: 0, count: size)
+        guard getxattr(bundle.path, noteName, &bytes, size, 0, 0) == size else { return nil }
+        return String(decoding: bytes, as: UTF8.self)
+    }
 }
